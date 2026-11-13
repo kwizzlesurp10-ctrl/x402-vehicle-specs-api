@@ -16,6 +16,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src/**/*", "scripts/**/*", "mcp/**/*", "tests/**/*"],
+  "include": ["src/**/*", "scripts/**/*", "mcp/**/*", "api/**/*", "tests/**/*"],
   "exclude": ["dist", "node_modules"]
 }

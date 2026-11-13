@@ -9,7 +9,7 @@ async function main(): Promise<void> {
       {
         ok: true,
         ...stats,
-        database: env.DATABASE_PATH,
+        database: "postgres",
       },
       null,
       2,

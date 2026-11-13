@@ -18,7 +18,10 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-  DATABASE_PATH: z.string().default("./data/vehicles.db"),
+  API_BASE_PATH: z.string().default(""),
+  DATABASE_URL: z.string().url().optional(),
+  DIRECT_URL: z.string().url().optional(),
+  CRON_SECRET: z.string().optional(),
   PAY_TO_ADDRESS: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/, "PAY_TO_ADDRESS must be a valid EVM address"),
@@ -46,10 +49,11 @@ const envSchema = z.object({
   JOB_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   JOB_MAX_TOKENS: z.coerce.number().int().positive().default(8_000),
-  LLM_PROVIDER: z.enum(["mock", "openai"]).default("mock"),
+  VERCEL_MAX_DURATION_MS: z.coerce.number().int().positive().optional(),
+  LLM_PROVIDER: z.enum(["mock", "openai", "xai"]).default("xai"),
   LLM_API_KEY: z.string().optional(),
-  LLM_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
-  LLM_MODEL: z.string().default("gpt-4o-mini"),
+  LLM_BASE_URL: z.string().url().default("https://api.x.ai/v1"),
+  LLM_MODEL: z.string().default("grok-3-mini"),
   DEFAULT_FUEL_PRICE_PER_GALLON: z.coerce.number().positive().default(3.5),
   DEFAULT_ANNUAL_MILES: z.coerce.number().positive().default(12_000),
 });

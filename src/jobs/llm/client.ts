@@ -14,7 +14,7 @@ export type LlmClient = {
 export type LlmClientFactory = (env: AppEnv) => LlmClient;
 
 export function createLlmClient(env: AppEnv): LlmClient {
-  if (env.LLM_PROVIDER === "mock") {
+  if (env.LLM_PROVIDER === "mock" || env.NODE_ENV === "test") {
     return new MockLlmClient();
   }
   return new OpenAiCompatibleClient(env);

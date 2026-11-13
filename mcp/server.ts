@@ -6,19 +6,23 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createApp } from "../src/api/app.js";
 import { loadEnv } from "../src/config/env.js";
+import { createDbExecutor } from "../src/db/client.js";
 
 const env = loadEnv(
   process.env.PAY_TO_ADDRESS
     ? { PAY_TO_ADDRESS: process.env.PAY_TO_ADDRESS }
-    : { PAY_TO_ADDRESS: "0x0000000000000000000000000000000000000001" },
+    : {
+        PAY_TO_ADDRESS: "0x0000000000000000000000000000000000000001",
+        LLM_PROVIDER: "mock",
+      },
 );
-const app = createApp({ env, enablePayments: false });
+const db = await createDbExecutor(env);
+const app = createApp({ db, env, enablePayments: false });
 
 const tools = [
   {
     name: "vehicle_search",
-    description:
-      "Search EPA vehicles (paid at the API layer; MCP wrapper returns data without settlement in local dev).",
+    description: "Search EPA vehicles (MCP wrapper; no x402 settlement).",
     inputSchema: {
       type: "object",
       properties: {
@@ -41,7 +45,7 @@ const tools = [
 
 async function main(): Promise<void> {
   const server = new Server(
-    { name: "x402-vehicle-specs", version: "0.1.0" },
+    { name: "x402-vehicle-specs", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
 

@@ -1,14 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDatabase } from "../src/db/client.js";
 import { ingestFromCsvText } from "../src/ingest/run.js";
 import {
   mergeEmissionsCsv,
   normalizeMpg,
   parseNullableInt,
 } from "../src/ingest/normalize.js";
+import { createTestDb } from "./test-db.js";
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -58,7 +58,17 @@ describe("normalize", () => {
 });
 
 describe("ingest", () => {
-  it("loads fixture CSV into SQLite", () => {
+  let db: Awaited<ReturnType<typeof createTestDb>>;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+  });
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("loads fixture CSV into Postgres (PGlite)", async () => {
     const vehicleCsv = fs.readFileSync(
       path.join(fixturesDir, "sample-vehicles.csv"),
       "utf8",
@@ -67,8 +77,7 @@ describe("ingest", () => {
       path.join(fixturesDir, "sample-emissions.csv"),
       "utf8",
     );
-    const db = openDatabase(":memory:");
-    const stats = ingestFromCsvText(
+    const stats = await ingestFromCsvText(
       db,
       vehicleCsv,
       emissionsCsv,
@@ -76,16 +85,13 @@ describe("ingest", () => {
       "2026-01-01T00:00:00.000Z",
     );
     expect(stats.vehicleRows).toBe(2);
-    const jetta = db
-      .prepare("SELECT * FROM vehicles WHERE id = 25262")
-      .get() as {
+    const jetta = await db.queryOne<{
       make: string;
       smog_score: number;
       combined_mpg: number;
-    };
-    expect(jetta.make).toBe("Volkswagen");
-    expect(jetta.combined_mpg).toBe(32);
-    expect(jetta.smog_score).toBe(1);
-    db.close();
+    }>("SELECT make, smog_score, combined_mpg FROM vehicles WHERE id = $1", [25262]);
+    expect(jetta?.make).toBe("Volkswagen");
+    expect(jetta?.combined_mpg).toBe(32);
+    expect(jetta?.smog_score).toBe(1);
   });
 });

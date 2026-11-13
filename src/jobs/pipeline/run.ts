@@ -1,7 +1,8 @@
-import type Database from "better-sqlite3";
 import type { AppEnv } from "../../config/env.js";
 import { buildSourceMeta } from "../../api/serializers.js";
 import { getIngestMetadata } from "../../db/client.js";
+import type { DbExecutor } from "../../db/executor.js";
+import { queryOne, queryRows } from "../../db/sql-helpers.js";
 import { SOURCE_NAME, type SourceMeta } from "../../lib/attribution.js";
 import type { LlmClient } from "../llm/client.js";
 import type { JobSubmitRequest } from "../types.js";
@@ -32,14 +33,24 @@ function annualFuelCost(gallons: number | null, price: number): number | null {
   return Math.round(gallons * price * 100) / 100;
 }
 
+type FoundVehicleRow = {
+  id: number;
+  combined_mpg: number | null;
+  co2_g_per_mi: number | null;
+  co2_tailpipe_g_per_mi: number | null;
+  year: number;
+  make: string;
+  model: string;
+};
+
 export async function runSwarmPipeline(params: {
-  db: Database.Database;
+  db: DbExecutor;
   env: AppEnv;
   request: JobSubmitRequest;
   llm: LlmClient;
   forceVerifierFail?: boolean | undefined;
 }): Promise<PipelineResult> {
-  const sourceMeta = buildSourceMeta(getIngestMetadata(params.db));
+  const sourceMeta = buildSourceMeta(await getIngestMetadata(params.db));
 
   const orchestrator = await params.llm.complete(
     [
@@ -93,40 +104,20 @@ export async function runSwarmPipeline(params: {
           const miles = ref.annual_miles ?? defaultMiles;
 
           const found = ref.vehicle_id
-            ? (params.db
-                .prepare(
-                  `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
+            ? await queryOne<FoundVehicleRow>(
+                params.db,
+                `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
                    FROM vehicles WHERE id = ?`,
-                )
-                .get(ref.vehicle_id) as
-                | {
-                    id: number;
-                    combined_mpg: number | null;
-                    co2_g_per_mi: number | null;
-                    co2_tailpipe_g_per_mi: number | null;
-                    year: number;
-                    make: string;
-                    model: string;
-                  }
-                | undefined)
-            : (params.db
-                .prepare(
-                  `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
+                [ref.vehicle_id],
+              )
+            : await queryOne<FoundVehicleRow>(
+                params.db,
+                `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
                    FROM vehicles
                    WHERE year = ? AND search_make = ? AND search_model LIKE ?
                    ORDER BY combined_mpg DESC LIMIT 1`,
-                )
-                .get(year, make.toLowerCase(), `%${model.toLowerCase()}%`) as
-                | {
-                    id: number;
-                    combined_mpg: number | null;
-                    co2_g_per_mi: number | null;
-                    co2_tailpipe_g_per_mi: number | null;
-                    year: number;
-                    make: string;
-                    model: string;
-                  }
-                | undefined);
+                [year, make.toLowerCase(), `%${model.toLowerCase()}%`],
+              );
 
           const gallons = annualFuelGallons(found?.combined_mpg ?? null, miles);
           entries.push({
@@ -160,24 +151,14 @@ export async function runSwarmPipeline(params: {
             entries.push({ vin, decode: d, note: "incomplete_vin_decode" });
             continue;
           }
-          const found = params.db
-            .prepare(
-              `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
+          const found = await queryOne<FoundVehicleRow>(
+            params.db,
+            `SELECT id, combined_mpg, co2_g_per_mi, co2_tailpipe_g_per_mi, year, make, model
                FROM vehicles
                WHERE year = ? AND search_make = ? AND search_model LIKE ?
                ORDER BY combined_mpg DESC LIMIT 1`,
-            )
-            .get(d.year, d.make.toLowerCase(), `%${d.model.toLowerCase()}%`) as
-            | {
-                id: number;
-                combined_mpg: number | null;
-                co2_g_per_mi: number | null;
-                co2_tailpipe_g_per_mi: number | null;
-                year: number;
-                make: string;
-                model: string;
-              }
-            | undefined;
+            [d.year, d.make.toLowerCase(), `%${d.model.toLowerCase()}%`],
+          );
 
           const miles = defaultMiles;
           const gallons = annualFuelGallons(found?.combined_mpg ?? null, miles);
@@ -201,16 +182,22 @@ export async function runSwarmPipeline(params: {
             annual_fuel_gallons: gallons,
             annual_fuel_cost_usd: annualFuelCost(gallons, fuelPrice),
             replacement_suggestions: found
-              ? params.db
-                  .prepare(
-                    `SELECT id, year, make, model, combined_mpg
+              ? await queryRows<{
+                  id: number;
+                  year: number;
+                  make: string;
+                  model: string;
+                  combined_mpg: number | null;
+                }>(
+                  params.db,
+                  `SELECT id, year, make, model, combined_mpg
                      FROM vehicles
                      WHERE v_class = (SELECT v_class FROM vehicles WHERE id = ?)
                        AND year >= ?
                        AND combined_mpg > ?
                      ORDER BY combined_mpg DESC LIMIT 3`,
-                  )
-                  .all(found.id, found.year, found.combined_mpg ?? 0)
+                  [found.id, found.year, found.combined_mpg ?? 0],
+                )
               : [],
           });
         }
@@ -269,7 +256,7 @@ export async function runSwarmPipeline(params: {
 
         data.comparison = {
           filter,
-          ranked: params.db.prepare(sql).all(...args),
+          ranked: await queryRows<Record<string, unknown>>(params.db, sql, args),
         };
         break;
       }
@@ -283,41 +270,41 @@ export async function runSwarmPipeline(params: {
           args.push(params.request.input.vehicle_class);
         }
 
-        const mpgTrend = params.db
-          .prepare(
-            `SELECT year,
+        const mpgTrend = await queryRows<Record<string, unknown>>(
+          params.db,
+          `SELECT year,
               AVG(combined_mpg) AS avg_combined_mpg,
               AVG(displ) AS avg_displacement_l,
-              COUNT(*) AS n
+              COUNT(*)::int AS n
              FROM vehicles
              WHERE year BETWEEN ? AND ? ${yearClause}
                AND combined_mpg IS NOT NULL
              GROUP BY year
              ORDER BY year`,
-          )
-          .all(...args);
+          args,
+        );
 
-        const fuelMix = params.db
-          .prepare(
-            `SELECT fuel_type1, COUNT(*) AS n
+        const fuelMix = await queryRows<Record<string, unknown>>(
+          params.db,
+          `SELECT fuel_type1, COUNT(*)::int AS n
              FROM vehicles
              WHERE year BETWEEN ? AND ? ${yearClause}
              GROUP BY fuel_type1
              ORDER BY n DESC
              LIMIT 12`,
-          )
-          .all(...args);
+          args,
+        );
 
-        const transMix = params.db
-          .prepare(
-            `SELECT trany, COUNT(*) AS n
+        const transMix = await queryRows<Record<string, unknown>>(
+          params.db,
+          `SELECT trany, COUNT(*)::int AS n
              FROM vehicles
              WHERE year BETWEEN ? AND ? ${yearClause}
              GROUP BY trany
              ORDER BY n DESC
              LIMIT 12`,
-          )
-          .all(...args);
+          args,
+        );
 
         data.trends = { mpg_by_year: mpgTrend, fuel_type_mix: fuelMix, transmission_mix: transMix };
         break;
@@ -343,15 +330,15 @@ export async function runSwarmPipeline(params: {
           args.push(input.vehicle_class);
         }
         const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-        const rows = params.db
-          .prepare(
-            `SELECT id, year, make, model, v_class, combined_mpg, displ, cylinders,
+        const rows = await queryRows<Record<string, unknown>>(
+          params.db,
+          `SELECT id, year, make, model, v_class, combined_mpg, displ, cylinders,
                     drive, trany, fuel_type1, co2_g_per_mi, co2_tailpipe_g_per_mi
              FROM vehicles ${where}
              ORDER BY year DESC, make, model
              LIMIT ?`,
-          )
-          .all(...args, input.limit);
+          [...args, input.limit],
+        );
 
         if (input.format === "csv") {
           const header = Object.keys(
@@ -382,8 +369,8 @@ export async function runSwarmPipeline(params: {
           openapi: "/openapi.json",
           sample_paid_search: "GET /v1/vehicles/search?year=2009&make=Volkswagen&model=Jetta",
           sample_job: "POST /v1/jobs",
-          sqlite_note:
-            "Jobs/vehicles live in SQLite today; swap queue to Redis/Upstash by replacing JobQueue backend.",
+          postgres_note:
+            "Primary store is Supabase Postgres (DATABASE_URL pooled). Jobs claimed with FOR UPDATE SKIP LOCKED.",
           schema_url: "prompts/schemas/",
         };
         break;
@@ -443,7 +430,7 @@ export async function runSwarmPipeline(params: {
 
   const verifier =
     claims.length > 0
-      ? verifyVehicleFacts(params.db, claims)
+      ? await verifyVehicleFacts(params.db, claims)
       : { verified: true, fields: [] as [] };
 
   data.verifier = verifier;

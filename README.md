@@ -4,13 +4,14 @@ Pay-per-call [x402](https://docs.x402.org/) API (USDC on Base) serving **EPA [Fu
 
 ## Features
 
-- Bulk ingest from EPA `vehicles.csv.zip` + `emissions.csv.zip` into SQLite for fast lookups
+- Bulk ingest from EPA `vehicles.csv.zip` + `emissions.csv.zip` into **Postgres** (Supabase) with batched upserts
 - x402 v2 middleware via `@x402/hono` (default **Base Sepolia** testnet)
-- **Cheap paid lookups** (search/id/emissions/compare/stats) unchanged
-- **Higher-tier paid swarm jobs** (`POST /v1/jobs`) orchestrate `/prompts` agents over SQLite (Verifier-gated numbers)
+- **Cheap paid lookups** (search/id/emissions/compare/stats)
+- **Higher-tier paid swarm jobs** (`POST /v1/jobs`) orchestrate `/prompts` agents over Postgres (Verifier-gated numbers)
 - Free discovery/menu routes + OpenAPI/x402 price manifest
 - Agent swarm prompts under [`prompts/`](prompts/)
 - Optional MCP stdio wrapper (`npm run mcp`)
+- **Deploy primary:** [Vercel](https://vercel.com) serverless + [Supabase](https://supabase.com) Postgres
 
 ## Data source & attribution
 
@@ -52,20 +53,24 @@ Set `PRICE_*` and `PAY_TO_ADDRESS` in `.env` (see `.env.example`).
 
 **Refund policy:** if the Verifier cannot reproduce numeric fields, the job finishes as `partial` with `refund_eligible=true` (manual USDC refund hook; on-chain automation TBD). `failed` / `timed_out` jobs may also set `refund_eligible`.
 
-**Safeguards:** `JOB_MAX_TOKENS`, `JOB_TIMEOUT_MS`, `JOB_MAX_CONCURRENCY`. SQL computes aggregates; the LLM (`LLM_PROVIDER=mock|openai`) only plans/parses filters and writes prose.
+**Safeguards:** `JOB_MAX_TOKENS`, `JOB_TIMEOUT_MS` (capped by `VERCEL_MAX_DURATION_MS` on Vercel), `JOB_MAX_CONCURRENCY`. SQL computes aggregates; the LLM only plans/parses filters and writes prose.
+
+**Default LLM:** xAI Grok via OpenAI-compatible API (`LLM_PROVIDER=xai`, `LLM_BASE_URL=https://api.x.ai/v1`, `LLM_MODEL=grok-3-mini`, `LLM_API_KEY`). Tests use `LLM_PROVIDER=mock`.
 
 **Flywheel:** anonymized job fingerprints land in `job_flywheel`. Run `npm run flywheel` for Scout/demand signals and cheap-endpoint candidates.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 cp .env.example .env
+# Supabase: set DATABASE_URL (pooler :6543) and DIRECT_URL (:5432) for migrations/ingest
 # Set PAY_TO_ADDRESS to your Base / Base-Sepolia USDC receive address
 
 npm ci
-npm run ingest        # downloads EPA zips (~50k vehicles) -> ./data/vehicles.db
-npm run dev           # http://0.0.0.0:8787
-npm test
+npm run migrate       # apply migrations/001_init.sql via DIRECT_URL
+npm run ingest        # downloads EPA zips (~50k vehicles) into Postgres
+npm run dev           # http://0.0.0.0:8787 (no /api prefix locally)
+npm test              # PGlite in-memory Postgres
 ```
 
 ### x402 flow (buyer)
@@ -98,7 +103,25 @@ curl http://127.0.0.1:8787/v1/jobs/<job_id>
 
 Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
 
-Queue storage is SQLite (`jobs` table). Swap `JobQueue` for Redis/Upstash by replacing the queue adapter while keeping the worker API.
+**Serverless workers:** there is no long-lived worker process. On Vercel, `POST /v1/jobs` enqueues in Postgres and uses `waitUntil` to run the job in the same invocation when possible; `/api/cron/jobs` (every 2 minutes) claims queued rows with `FOR UPDATE SKIP LOCKED`.
+
+## Deploy: Vercel + Supabase (recommended)
+
+1. Create a Supabase project and copy **connection strings**:
+   - **DATABASE_URL** — Transaction pooler (port **6543**, `?pgbouncer=true`) for the Vercel function
+   - **DIRECT_URL** — Session/direct (port **5432**) for `npm run migrate` and `npm run ingest`
+2. Import this repo in Vercel. [`vercel.json`](vercel.json) routes all paths to `api/index.ts`, sets `maxDuration: 300`, and registers crons:
+   - `GET /api/cron/ingest` — weekly EPA refresh (Sunday 06:00 UTC)
+   - `GET /api/cron/jobs` — job drain every 2 minutes
+3. Set Vercel environment variables from `.env.example` (including `CRON_SECRET`, `PAY_TO_ADDRESS`, `LLM_API_KEY`).
+4. Run migrations + initial ingest locally or via [`.github/workflows/ingest-weekly.yml`](.github/workflows/ingest-weekly.yml) (`workflow_dispatch` + weekly schedule using `DIRECT_URL` secret).
+5. Protect cron routes: `Authorization: Bearer <CRON_SECRET>`.
+
+Production URLs are under `/api` (e.g. `/api/health`, `/api/v1/vehicles/search`).
+
+## Optional: Render
+
+[`render.yaml`](render.yaml) can run the long-lived `src/server.ts` against the same Supabase `DATABASE_URL` if you prefer a always-on Node process instead of serverless.
 
 ## API examples
 
@@ -115,10 +138,17 @@ curl -i "http://127.0.0.1:8787/v1/vehicles/25262"
 
 | Variable | Description |
 | --- | --- |
+| `DATABASE_URL` | Postgres pooler URL (Supabase :6543) — required in production |
+| `DIRECT_URL` | Direct Postgres URL for migrations/ingest (:5432) |
+| `CRON_SECRET` | Bearer token for `/cron/*` on Vercel |
+| `API_BASE_PATH` | `/api` on Vercel; `/` locally |
 | `PAY_TO_ADDRESS` | **Required.** EVM address receiving USDC |
 | `X402_NETWORK` | `base-sepolia` (default) or `base` |
 | `FACILITATOR_URL` | x402 facilitator (default `https://x402.org/facilitator`) |
-| `DATABASE_PATH` | SQLite path (default `./data/vehicles.db`) |
+| `LLM_PROVIDER` | `xai` (default), `openai`, or `mock` |
+| `LLM_BASE_URL` | Default `https://api.x.ai/v1` |
+| `LLM_MODEL` | Default `grok-3-mini` |
+| `LLM_API_KEY` | API key for xAI/OpenAI |
 | `PRICE_*` | Per-route USD amounts |
 | `EPA_*_ZIP_URL` | Override EPA bulk URLs if needed |
 
@@ -130,22 +160,6 @@ Per-agent instructions + JSON Schema I/O live in:
 - [`prompts/schemas/`](prompts/schemas/) — input/output schemas
 - [`prompts/source-registry.json`](prompts/source-registry.json) — Scout registry seed
 
-## Deploy notes
-
-### Render
-
-[`render.yaml`](render.yaml) runs the API with a persistent disk for SQLite. Run ingest on deploy or as a cron job:
-
-```bash
-npm run ingest
-```
-
-Bind is already `0.0.0.0:$PORT` via `@hono/node-server`.
-
-### Vercel
-
-Use Vercel for static docs only; this service needs long-lived SQLite + scheduled ingest—**Render (or similar) is recommended**.
-
 ## Development
 
 ```bash
@@ -154,7 +168,7 @@ npm test
 npm run mcp
 ```
 
-Tests cover EPA normalization/ingest and HTTP behavior (402 without payment; happy path with payments disabled for mocked settlement).
+Tests use **PGlite** (in-memory Postgres) with `migrations/001_init.sql`. EPA normalization/ingest and HTTP behavior (402 without payment; job lifecycle with mock LLM).
 
 ## License
 

@@ -1,23 +1,21 @@
 import { loadEnv } from "../src/config/env.js";
-import { openDatabase } from "../src/db/client.js";
+import { createDbExecutor } from "../src/db/client.js";
 
 const env = loadEnv();
-const db = openDatabase(env.DATABASE_PATH);
+const db = await createDbExecutor(env);
 
-const topQueries = db
-  .prepare(
-    `SELECT job_type, query_fingerprint, COUNT(*) AS n, AVG(success) AS success_rate
-     FROM job_flywheel
-     GROUP BY job_type, query_fingerprint
-     ORDER BY n DESC
-     LIMIT 25`,
-  )
-  .all() as Array<{
+const topQueries = await db.queryRows<{
   job_type: string;
   query_fingerprint: string;
   n: number;
   success_rate: number;
-}>;
+}>(
+  `SELECT job_type, query_fingerprint, COUNT(*)::int AS n, AVG(CASE WHEN success THEN 1.0 ELSE 0.0 END) AS success_rate
+     FROM job_flywheel
+     GROUP BY job_type, query_fingerprint
+     ORDER BY n DESC
+     LIMIT 25`,
+);
 
 const report = {
   generated_at: new Date().toISOString(),
@@ -32,4 +30,4 @@ const report = {
 };
 
 console.log(JSON.stringify(report, null, 2));
-db.close();
+await db.close();

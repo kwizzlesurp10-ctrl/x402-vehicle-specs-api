@@ -71,7 +71,11 @@ export function serializeVehicle(row: VehicleRow): VehicleSpecs {
       highway: row.highway_mpg,
       combined: row.combined_mpg,
       epa_data_reliable:
-        row.mpg_data_reliable === null ? null : row.mpg_data_reliable === 1,
+        row.mpg_data_reliable === null
+          ? null
+          : typeof row.mpg_data_reliable === "boolean"
+            ? row.mpg_data_reliable
+            : row.mpg_data_reliable === 1,
     },
     emissions: {
       co2_g_per_mi: row.co2_g_per_mi,

@@ -1,5 +1,6 @@
-import type Database from "better-sqlite3";
+import type { DbExecutor } from "../../db/executor.js";
 import type { VehicleRow } from "../../db/client.js";
+import { queryOne } from "../../db/sql-helpers.js";
 
 export type VerifiedField = {
   field: string;
@@ -17,16 +18,22 @@ function co2ForRow(row: VehicleRow): number | null {
   return row.co2_g_per_mi ?? row.co2_tailpipe_g_per_mi;
 }
 
-export function verifyVehicleFacts(
-  db: Database.Database,
-  claims: Array<{ vehicle_id: number; combined_mpg?: number | null; co2_g_per_mi?: number | null }>,
-): VerifierOutcome {
+export async function verifyVehicleFacts(
+  db: DbExecutor,
+  claims: Array<{
+    vehicle_id: number;
+    combined_mpg?: number | null;
+    co2_g_per_mi?: number | null;
+  }>,
+): Promise<VerifierOutcome> {
   const fields: VerifiedField[] = [];
 
   for (const claim of claims) {
-    const row = db
-      .prepare(`SELECT * FROM vehicles WHERE id = ?`)
-      .get(claim.vehicle_id) as VehicleRow | undefined;
+    const row = await queryOne<VehicleRow>(
+      db,
+      `SELECT * FROM vehicles WHERE id = ?`,
+      [claim.vehicle_id],
+    );
 
     if (!row) {
       fields.push({

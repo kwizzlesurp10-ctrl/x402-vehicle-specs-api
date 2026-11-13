@@ -1,7 +1,10 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { MIGRATION_SQL } from "./schema.js";
+import type { AppEnv } from "../config/env.js";
+import { createExecutorFromUrl } from "./executor.js";
+import { createPgliteExecutor } from "./pglite.js";
+import type { DbExecutor } from "./executor.js";
 
 export type VehicleRow = {
   id: number;
@@ -20,7 +23,7 @@ export type VehicleRow = {
   city_mpg: number | null;
   highway_mpg: number | null;
   combined_mpg: number | null;
-  mpg_data_reliable: number | null;
+  mpg_data_reliable: boolean | null;
   co2_g_per_mi: number | null;
   co2_tailpipe_g_per_mi: number | null;
   ghg_score: number | null;
@@ -39,21 +42,39 @@ export type IngestMetadata = {
   emissions_row_count: number;
 };
 
-export function openDatabase(databasePath: string): Database.Database {
-  const dir = path.dirname(databasePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const db = new Database(databasePath);
-  db.pragma("journal_mode = WAL");
-  db.exec(MIGRATION_SQL);
-  return db;
+const migrationsDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../migrations",
+);
+
+export function loadMigrationSql(): string {
+  return readFileSync(path.join(migrationsDir, "001_init.sql"), "utf8");
 }
 
-export function getIngestMetadata(db: Database.Database): IngestMetadata | null {
-  const row = db
-    .prepare(
-      `SELECT vehicles_retrieved_at, emissions_retrieved_at, vehicle_row_count, emissions_row_count
-       FROM ingest_metadata WHERE id = 1`,
-    )
-    .get() as IngestMetadata | undefined;
-  return row ?? null;
+export async function createDbExecutor(env: AppEnv): Promise<DbExecutor> {
+  if (env.NODE_ENV === "test" && !env.DATABASE_URL) {
+    return createPgliteExecutor(loadMigrationSql());
+  }
+  if (!env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return createExecutorFromUrl(env.DATABASE_URL);
+}
+
+export async function createDirectDbExecutor(env: AppEnv): Promise<DbExecutor> {
+  const url = env.DIRECT_URL ?? env.DATABASE_URL;
+  if (!url) {
+    throw new Error("DIRECT_URL or DATABASE_URL is required for ingest/migrations");
+  }
+  return createExecutorFromUrl(url);
+}
+
+export async function getIngestMetadata(
+  db: DbExecutor,
+): Promise<IngestMetadata | null> {
+  return db.queryOne<IngestMetadata>(
+    `SELECT vehicles_retrieved_at::text, emissions_retrieved_at::text,
+            vehicle_row_count, emissions_row_count
+     FROM ingest_metadata WHERE id = 1`,
+  );
 }
