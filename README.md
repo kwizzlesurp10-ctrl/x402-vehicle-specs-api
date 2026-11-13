@@ -6,6 +6,8 @@ Pay-per-call [x402](https://docs.x402.org/) API (USDC on Base) serving **EPA [Fu
 
 - Bulk ingest from EPA `vehicles.csv.zip` + `emissions.csv.zip` into SQLite for fast lookups
 - x402 v2 middleware via `@x402/hono` (default **Base Sepolia** testnet)
+- **Cheap paid lookups** (search/id/emissions/compare/stats) unchanged
+- **Higher-tier paid swarm jobs** (`POST /v1/jobs`) orchestrate `/prompts` agents over SQLite (Verifier-gated numbers)
 - Free discovery/menu routes + OpenAPI/x402 price manifest
 - Agent swarm prompts under [`prompts/`](prompts/)
 - Optional MCP stdio wrapper (`npm run mcp`)
@@ -36,6 +38,24 @@ Every JSON response includes `meta.source`, `meta.source_urls`, and `meta.update
 
 Set `PRICE_*` and `PAY_TO_ADDRESS` in `.env` (see `.env.example`).
 
+### Swarm job pricing (configurable)
+
+| Job type | Default (standard) | Deep (`JOB_DEPTH_MULTIPLIER_DEEP`) |
+| --- | --- | --- |
+| `fleet_analysis` | $0.75 | 2× |
+| `comparison_report` | $0.50 | 2× |
+| `trend_insights` | $0.35 | 2× |
+| `custom_export` | $0.40 | 2× |
+| `starter_kit` | $0.25 | 2× |
+
+`POST /v1/jobs` is x402-paid (tier resolved from JSON `type` + `depth`). `GET /v1/jobs/:id` is **free** for polling. Optional `webhook_url` receives the completed payload.
+
+**Refund policy:** if the Verifier cannot reproduce numeric fields, the job finishes as `partial` with `refund_eligible=true` (manual USDC refund hook; on-chain automation TBD). `failed` / `timed_out` jobs may also set `refund_eligible`.
+
+**Safeguards:** `JOB_MAX_TOKENS`, `JOB_TIMEOUT_MS`, `JOB_MAX_CONCURRENCY`. SQL computes aggregates; the LLM (`LLM_PROVIDER=mock|openai`) only plans/parses filters and writes prose.
+
+**Flywheel:** anonymized job fingerprints land in `job_flywheel`. Run `npm run flywheel` for Scout/demand signals and cheap-endpoint candidates.
+
 ## Quick start
 
 ```bash
@@ -63,6 +83,22 @@ export EVM_PRIVATE_KEY=0x...
 export API_BASE_URL=http://127.0.0.1:8787
 npm run client:example
 ```
+
+## Swarm job flow
+
+```bash
+# 1) Pay + enqueue (402 without wallet)
+curl -i -X POST http://127.0.0.1:8787/v1/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"starter_kit","depth":"standard","input":{"language":"typescript"}}'
+
+# 2) Poll (free)
+curl http://127.0.0.1:8787/v1/jobs/<job_id>
+```
+
+Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
+
+Queue storage is SQLite (`jobs` table). Swap `JobQueue` for Redis/Upstash by replacing the queue adapter while keeping the worker API.
 
 ## API examples
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jobs.fleet_analysis.output.schema.json",
+  "type": "object",
+  "required": ["fleet_entries", "reporter", "verifier", "source_meta"],
+  "properties": {
+    "fleet_entries": { "type": "array" },
+    "reporter": { "type": "object" },
+    "verifier": { "type": "object" },
+    "source_meta": { "$ref": "../common.source-meta.schema.json" },
+    "refund_eligible": { "type": "boolean" }
+  }
+}

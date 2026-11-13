@@ -37,6 +37,21 @@ const envSchema = z.object({
     .string()
     .url()
     .default("https://fueleconomy.gov/feg/epadata/emissions.csv.zip"),
+  PRICE_JOB_FLEET_ANALYSIS: z.coerce.number().positive().default(0.75),
+  PRICE_JOB_COMPARISON_REPORT: z.coerce.number().positive().default(0.5),
+  PRICE_JOB_TREND_INSIGHTS: z.coerce.number().positive().default(0.35),
+  PRICE_JOB_CUSTOM_EXPORT: z.coerce.number().positive().default(0.4),
+  PRICE_JOB_STARTER_KIT: z.coerce.number().positive().default(0.25),
+  JOB_DEPTH_MULTIPLIER_DEEP: z.coerce.number().positive().default(2),
+  JOB_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  JOB_MAX_TOKENS: z.coerce.number().int().positive().default(8_000),
+  LLM_PROVIDER: z.enum(["mock", "openai"]).default("mock"),
+  LLM_API_KEY: z.string().optional(),
+  LLM_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  LLM_MODEL: z.string().default("gpt-4o-mini"),
+  DEFAULT_FUEL_PRICE_PER_GALLON: z.coerce.number().positive().default(3.5),
+  DEFAULT_ANNUAL_MILES: z.coerce.number().positive().default(12_000),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

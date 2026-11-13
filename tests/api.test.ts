@@ -6,7 +6,7 @@ import { openDatabase } from "../src/db/client.js";
 import { ingestFromCsvText } from "../src/ingest/run.js";
 import { createApp } from "../src/api/app.js";
 import { preparePaymentLayer } from "../src/api/x402-routes.js";
-import type { AppEnv } from "../src/config/env.js";
+import { loadEnv, type AppEnv } from "../src/config/env.js";
 
 const fixturesDir = path.join(import.meta.dirname, "fixtures");
 
@@ -30,28 +30,23 @@ function seedDatabase(dbPath: string): void {
   db.close();
 }
 
-const baseEnv: AppEnv = {
-  PORT: 8787,
-  NODE_ENV: "test",
-  DATABASE_PATH: "",
-  PAY_TO_ADDRESS: "0x0000000000000000000000000000000000000001",
-  X402_NETWORK: "base-sepolia",
-  FACILITATOR_URL: "https://x402.org/facilitator",
-  PRICE_SEARCH: 0.001,
-  PRICE_VEHICLE: 0.002,
-  PRICE_EMISSIONS: 0.002,
-  PRICE_COMPARE: 0.005,
-  PRICE_STATS: 0.01,
-  EPA_VEHICLES_ZIP_URL: "https://fueleconomy.gov/feg/epadata/vehicles.csv.zip",
-  EPA_EMISSIONS_ZIP_URL: "https://fueleconomy.gov/feg/epadata/emissions.csv.zip",
-};
+function baseEnv(dbPath: string): AppEnv {
+  return loadEnv({
+    NODE_ENV: "test",
+    DATABASE_PATH: dbPath,
+    FACILITATOR_URL: "https://x402.org/facilitator",
+    PAY_TO_ADDRESS: "0x0000000000000000000000000000000000000001",
+  });
+}
 
 describe("API routes", () => {
   let dbPath: string;
+  let env: AppEnv;
 
   beforeAll(() => {
     dbPath = path.join(os.tmpdir(), `vehicle-api-test-${Date.now()}.db`);
     seedDatabase(dbPath);
+    env = baseEnv(dbPath);
   });
 
   afterAll(() => {
@@ -60,7 +55,7 @@ describe("API routes", () => {
 
   it("serves free menu endpoints", async () => {
     const app = createApp({
-      env: { ...baseEnv, DATABASE_PATH: dbPath },
+      env,
       enablePayments: false,
     });
     const res = await app.request("/v1/makes?year=2009");
@@ -71,7 +66,7 @@ describe("API routes", () => {
 
   it("returns paid vehicle payload when payments are bypassed (mocked settlement)", async () => {
     const app = createApp({
-      env: { ...baseEnv, DATABASE_PATH: dbPath },
+      env,
       enablePayments: false,
     });
     const res = await app.request("/v1/vehicles/25262");
@@ -87,7 +82,6 @@ describe("API routes", () => {
   });
 
   it("returns HTTP 402 on paid routes without payment", async () => {
-    const env = { ...baseEnv, DATABASE_PATH: dbPath };
     const paymentLayer = await preparePaymentLayer(env);
     const app = createApp({
       env,

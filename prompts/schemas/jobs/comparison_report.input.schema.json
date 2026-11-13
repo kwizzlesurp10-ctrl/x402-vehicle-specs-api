@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jobs.comparison_report.input.schema.json",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": { "type": "string", "minLength": 3 },
+    "year_min": { "type": "integer" },
+    "year_max": { "type": "integer" },
+    "vehicle_class": { "type": "string" },
+    "min_displacement_l": { "type": "number" },
+    "max_displacement_l": { "type": "number" },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+  }
+}

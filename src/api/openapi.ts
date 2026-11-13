@@ -1,5 +1,6 @@
 import type { AppEnv } from "../config/env.js";
 import { CAIP2_BY_NETWORK, formatUsdPrice } from "../config/env.js";
+import { jobPriceTable } from "../jobs/pricing.js";
 
 export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
   const network = CAIP2_BY_NETWORK[env.X402_NETWORK];
@@ -7,9 +8,9 @@ export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "x402 Vehicle Specs API",
-      version: "0.1.0",
+      version: "0.2.0",
       description:
-        "EPA fueleconomy.gov vehicle specifications with x402 (USDC on Base) micropayments.",
+        "EPA fueleconomy.gov vehicle specifications with x402 (USDC on Base) micropayments and paid swarm analysis jobs.",
     },
     servers: [{ url: "/" }],
     "x-x402": {
@@ -24,11 +25,13 @@ export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
         "GET /v1/vehicles/:id/emissions": formatUsdPrice(env.PRICE_EMISSIONS),
         "GET /v1/compare": formatUsdPrice(env.PRICE_COMPARE),
         "GET /v1/stats": formatUsdPrice(env.PRICE_STATS),
+        ...jobPriceTable(env),
       },
       free_endpoints: [
         "GET /health",
         "GET /v1/makes",
         "GET /v1/models",
+        "GET /v1/jobs/:id",
         "GET /openapi.json",
         "GET /.well-known/x402.json",
       ],
@@ -47,6 +50,32 @@ export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
       "/v1/compare": { get: { summary: "Compare up to 5 vehicle IDs (paid)" } },
       "/v1/stats": {
         get: { summary: "Aggregate MPG/engine mix by year & class (paid)" },
+      },
+      "/v1/jobs": {
+        post: {
+          summary: "Enqueue paid swarm analysis job (x402, tiered pricing)",
+          description:
+            "Returns 202 + job_id immediately. Poll GET /v1/jobs/:id (free). Optional webhook_url for completion callback.",
+        },
+      },
+      "/v1/jobs/{id}": {
+        get: { summary: "Job status/result (free)" },
+      },
+    },
+    "x-swarm-jobs": {
+      types: [
+        "fleet_analysis",
+        "comparison_report",
+        "trend_insights",
+        "custom_export",
+        "starter_kit",
+      ],
+      schemas: "prompts/schemas/jobs/",
+      safeguards: {
+        token_cap: env.JOB_MAX_TOKENS,
+        timeout_ms: env.JOB_TIMEOUT_MS,
+        concurrency: env.JOB_MAX_CONCURRENCY,
+        refund_eligible_on: ["partial", "failed", "timed_out"],
       },
     },
   };

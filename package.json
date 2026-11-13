@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "lint": "tsc -p tsconfig.json --noEmit",
     "client:example": "tsx examples/paying-client.ts",
-    "mcp": "tsx mcp/server.ts"
+    "mcp": "tsx mcp/server.ts",
+    "flywheel": "tsx scripts/flywheel-report.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",

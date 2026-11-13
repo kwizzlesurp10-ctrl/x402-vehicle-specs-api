@@ -6,12 +6,18 @@ import { err, ok, type Result } from "../lib/result.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { VehicleRepository } from "./repository.js";
 import { buildSourceMeta, serializeVehicle } from "./serializers.js";
+import { JOB_BODY_KEY, createJobsPaymentMiddleware } from "./jobs-payment.js";
 import { createPaymentLayer, type PaymentLayer } from "./x402-routes.js";
+import { JobQueue } from "../jobs/queue.js";
+import { resolveJobPriceUsd } from "../jobs/pricing.js";
+import { jobSubmitSchema, type JobSubmitRequest } from "../jobs/types.js";
+import type { JobWorker } from "../jobs/worker.js";
 
 export type CreateAppOptions = {
   env: AppEnv;
   enablePayments?: boolean;
   paymentLayer?: PaymentLayer;
+  jobWorker?: JobWorker;
 };
 
 function parsePositiveInt(raw: string | undefined): Result<number, string> {
@@ -27,6 +33,7 @@ export function createApp(options: CreateAppOptions): Hono {
 
   const db = openDatabase(env.DATABASE_PATH);
   const repo = new VehicleRepository(db);
+  const jobQueue = new JobQueue(db);
   const app = new Hono();
 
   app.get("/health", (c) => {
@@ -79,13 +86,74 @@ export function createApp(options: CreateAppOptions): Hono {
     );
   });
 
+  const postJob = async (c: import("hono").Context) => {
+    const body = enablePayments
+      ? (c.get(JOB_BODY_KEY) as JobSubmitRequest | undefined)
+      : undefined;
+    const json = body ?? (await c.req.json());
+    const parsed = jobSubmitSchema.safeParse(json);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+
+    const paymentUsd = resolveJobPriceUsd(
+      env,
+      parsed.data.type,
+      parsed.data.depth,
+    );
+    const record = jobQueue.createJob({ request: parsed.data, paymentUsd });
+    void options.jobWorker?.processJobById(record.id);
+
+    return c.json(
+      {
+        job_id: record.id,
+        status: record.status,
+        type: record.type,
+        depth: record.depth,
+        payment_usd: paymentUsd,
+        poll_url: `/v1/jobs/${record.id}`,
+        refund_policy:
+          "If status=partial or failed with refund_eligible=true, contact the operator for manual USDC refund (on-chain hook TBD).",
+      },
+      202,
+    );
+  };
+
   if (enablePayments) {
     const payment = options.paymentLayer ?? createPaymentLayer(env);
     app.use("/v1/vehicles/*", payment.middleware);
     app.use("/v1/vehicles", payment.middleware);
     app.use("/v1/compare", payment.middleware);
     app.use("/v1/stats", payment.middleware);
+    app.post(
+      "/v1/jobs",
+      createJobsPaymentMiddleware(payment.resourceServer, env),
+      postJob,
+    );
+  } else {
+    app.post("/v1/jobs", postJob);
   }
+
+  app.get("/v1/jobs/:id", (c) => {
+    const job = jobQueue.getById(c.req.param("id"));
+    if (!job) return c.json({ error: "job not found" }, 404);
+    return c.json({
+      job_id: job.id,
+      type: job.type,
+      depth: job.depth,
+      status: job.status,
+      payment_usd: job.payment_usd,
+      refund_eligible: job.refund_eligible === 1,
+      verifier_passed: job.verifier_passed === 1,
+      tokens_used: job.tokens_used,
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+      error_message: job.error_message,
+      result: job.result_json ? JSON.parse(job.result_json) : null,
+    });
+  });
 
   app.get("/v1/vehicles/search", (c) => {
     const yearParam = c.req.query("year");

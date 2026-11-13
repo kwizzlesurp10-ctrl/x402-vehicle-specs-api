@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jobs.fleet_analysis.input.schema.json",
+  "type": "object",
+  "properties": {
+    "vins": { "type": "array", "items": { "type": "string", "minLength": 11, "maxLength": 17 } },
+    "vehicles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["year", "make", "model"],
+        "properties": {
+          "year": { "type": "integer", "minimum": 1984 },
+          "make": { "type": "string" },
+          "model": { "type": "string" },
+          "annual_miles": { "type": "number", "exclusiveMinimum": 0 },
+          "vehicle_id": { "type": "integer", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "fuel_price_per_gallon": { "type": "number", "exclusiveMinimum": 0 }
+  },
+  "additionalProperties": false
+}

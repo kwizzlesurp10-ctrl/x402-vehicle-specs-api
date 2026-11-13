@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jobs.custom_export.input.schema.json",
+  "type": "object",
+  "properties": {
+    "format": { "type": "string", "enum": ["json", "csv"], "default": "json" },
+    "year": { "type": "integer" },
+    "make": { "type": "string" },
+    "model": { "type": "string" },
+    "vehicle_class": { "type": "string" },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
+  }
+}
