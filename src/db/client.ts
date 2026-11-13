@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { AppEnv } from "../config/env.js";
@@ -48,7 +48,12 @@ const migrationsDir = path.join(
 );
 
 export function loadMigrationSql(): string {
-  return readFileSync(path.join(migrationsDir, "001_init.sql"), "utf8");
+  const files = readdirSync(migrationsDir)
+    .filter((name) => /^\d+_.*\.sql$/.test(name))
+    .sort((a, b) => a.localeCompare(b));
+  return files
+    .map((name) => readFileSync(path.join(migrationsDir, name), "utf8"))
+    .join("\n\n");
 }
 
 export async function createDbExecutor(env: AppEnv): Promise<DbExecutor> {

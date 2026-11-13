@@ -5,7 +5,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const db = await createDirectDbExecutor(env);
   await db.exec(loadMigrationSql());
-  console.log(JSON.stringify({ ok: true, migrated: "001_init.sql" }));
+  console.log(JSON.stringify({ ok: true, migrated: "migrations/*.sql" }));
   await db.close();
 }
 

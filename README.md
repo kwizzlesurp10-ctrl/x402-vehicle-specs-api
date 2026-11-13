@@ -107,9 +107,10 @@ Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
 
 ## Deploy: Vercel + Supabase (recommended)
 
-1. Create a Supabase project and copy **connection strings**:
+1. Create or reuse a Supabase project and copy **connection strings**:
    - **DATABASE_URL** — Transaction pooler (port **6543**, `?pgbouncer=true`) for the Vercel function
    - **DIRECT_URL** — Session/direct (port **5432**) for `npm run migrate` and `npm run ingest`
+   - If the project is **shared** with other apps, run `npm run migrate` so `002_enable_rls.sql` turns on **Row Level Security** (no policies) on `ingest_metadata`, `vehicles`, `jobs`, and `job_flywheel`. That blocks Supabase **Data API** / PostgREST for `anon` and `authenticated`; the API server uses the **postgres** (owner) connection and is unaffected.
 2. Import this repo in Vercel. [`vercel.json`](vercel.json) routes all paths to `api/index.ts`, sets `maxDuration: 300`, and registers crons:
    - `GET /api/cron/ingest` — weekly EPA refresh (Sunday 06:00 UTC)
    - `GET /api/cron/jobs` — job drain every 2 minutes
