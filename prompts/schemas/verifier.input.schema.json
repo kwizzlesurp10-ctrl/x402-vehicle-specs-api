@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verifier.input.schema.json",
+  "type": "object",
+  "required": ["draft", "vehicle_id"],
+  "properties": {
+    "vehicle_id": { "type": "integer", "minimum": 1 },
+    "draft": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

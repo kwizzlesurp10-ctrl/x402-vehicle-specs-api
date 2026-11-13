@@ -1,0 +1,43 @@
+{
+  "name": "x402-vehicle-specs-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pay-per-call x402 API for EPA fueleconomy.gov vehicle specifications",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "ingest": "tsx scripts/ingest.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "client:example": "tsx examples/paying-client.ts",
+    "mcp": "tsx mcp/server.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "@hono/zod-openapi": "^0.19.6",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@x402/core": "^2.11.0",
+    "@x402/evm": "^2.11.0",
+    "@x402/hono": "^2.11.0",
+    "better-sqlite3": "^11.9.1",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.5.0",
+    "hono": "^4.7.10",
+    "unzipper": "^0.12.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.3",
+    "@types/unzipper": "^0.10.11",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

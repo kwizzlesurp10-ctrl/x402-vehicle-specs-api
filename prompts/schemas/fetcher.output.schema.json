@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fetcher.output.schema.json",
+  "type": "object",
+  "required": ["artifacts", "source_meta"],
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "retrieved_at"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["vehicles_csv", "emissions_csv", "rest_vehicle", "rest_emissions"]
+          },
+          "retrieved_at": { "type": "string", "format": "date-time" },
+          "row_count": { "type": "integer", "minimum": 0 },
+          "checksum_sha256": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "source_meta": { "$ref": "common.source-meta.schema.json" }
+  },
+  "additionalProperties": false
+}

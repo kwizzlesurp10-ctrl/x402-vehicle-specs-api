@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orchestrator.input.schema.json",
+  "type": "object",
+  "required": ["request_id", "question", "scope"],
+  "properties": {
+    "request_id": { "type": "string" },
+    "question": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "year": { "type": "integer", "minimum": 1984 },
+        "make": { "type": "string" },
+        "model": { "type": "string" },
+        "vehicle_id": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "requested_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "mpg",
+          "engine",
+          "drivetrain",
+          "transmission",
+          "fuel_type",
+          "emissions"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}
