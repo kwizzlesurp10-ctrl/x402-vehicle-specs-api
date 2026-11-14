@@ -8,6 +8,7 @@
     "node": "22.x"
   },
   "scripts": {
+    "build": "node -e \"/* Vercel dashboard may run npm run build; no static site */\"",
     "compile": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/src/server.js",
