@@ -12,8 +12,12 @@ import { createPaymentLayer, type PaymentLayer } from "./x402-routes.js";
 import { JobQueue } from "../jobs/queue.js";
 import { resolveJobPriceUsd } from "../jobs/pricing.js";
 import { jobSubmitSchema, type JobSubmitRequest } from "../jobs/types.js";
-import { processJobById, processQueuedBatch } from "../jobs/worker-once.js";
+import { processJobById } from "../jobs/worker-once.js";
 import { ingestFromEpa } from "../ingest/run.js";
+import { buildHealthPayload, buildJobsHealthPayload } from "./health.js";
+import { logJobsEvent } from "../lib/job-logger.js";
+import { runJobsCron } from "../jobs/cron-jobs.js";
+import { recordIngestCronRun } from "../jobs/queue-stats.js";
 
 export type CreateAppOptions = {
   db: DbExecutor;
@@ -59,13 +63,11 @@ export function createApp(options: CreateAppOptions): Hono {
   const app = new Hono().basePath(options.basePath ?? env.API_BASE_PATH);
 
   app.get("/health", async (c) => {
-    const metadata = await getIngestMetadata(db);
-    return c.json({
-      status: "ok",
-      database: env.DATABASE_URL ? "postgres" : "pglite",
-      vehicles_indexed: metadata?.vehicle_row_count ?? 0,
-      data_updated_at: metadata?.vehicles_retrieved_at ?? null,
-    });
+    return c.json(await buildHealthPayload(db, env));
+  });
+
+  app.get("/health/jobs", async (c) => {
+    return c.json(await buildJobsHealthPayload(db, env));
   });
 
   app.get("/openapi.json", (c) => c.json(buildOpenApiDocument(env)));
@@ -75,19 +77,35 @@ export function createApp(options: CreateAppOptions): Hono {
     if (!isAuthorizedCron(c, env)) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    const stats = await ingestFromEpa(env);
-    return c.json({ ok: true, ...stats });
+    const started = Date.now();
+    logJobsEvent("cron_ingest_start", {});
+    try {
+      const stats = await ingestFromEpa(env);
+      const duration_ms = Date.now() - started;
+      const summary = { ...stats, duration_ms };
+      await recordIngestCronRun(db, true, summary);
+      logJobsEvent("cron_ingest_complete", { duration_ms, vehicleRows: stats.vehicleRows });
+      return c.json({ ok: true, ...stats, duration_ms });
+    } catch (error) {
+      const duration_ms = Date.now() - started;
+      const message = error instanceof Error ? error.message : "unknown_error";
+      await recordIngestCronRun(db, false, { duration_ms, error: message });
+      logJobsEvent("cron_ingest_error", { duration_ms, error: message });
+      return c.json({ ok: false, error: message, duration_ms }, 500);
+    }
   });
 
   app.get("/cron/jobs", async (c) => {
     if (!isAuthorizedCron(c, env)) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    const processed = await processQueuedBatch(
-      { db, env },
-      env.JOB_MAX_CONCURRENCY,
-    );
-    return c.json({ ok: true, processed });
+    try {
+      const result = await runJobsCron({ db, env });
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown_error";
+      return c.json({ ok: false, error: message }, 500);
+    }
   });
 
   app.get("/v1/makes", async (c) => {
@@ -142,7 +160,11 @@ export function createApp(options: CreateAppOptions): Hono {
       parsed.data.type,
       parsed.data.depth,
     );
-    const record = await jobQueue.createJob({ request: parsed.data, paymentUsd });
+    const record = await jobQueue.createJob({
+      request: parsed.data,
+      paymentUsd,
+      maxAttempts: env.JOB_MAX_ATTEMPTS,
+    });
     await kickJob(env, db, record.id);
 
     return c.json(
