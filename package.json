@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Pay-per-call x402 API for EPA fueleconomy.gov vehicle specifications",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "compile": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/src/server.js",
     "ingest": "tsx scripts/ingest.ts",
