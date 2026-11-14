@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scout.output.schema.json",
+  "type": "object",
+  "required": ["registry", "source_meta"],
+  "properties": {
+    "registry": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "format", "fields"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "format": { "type": "string", "enum": ["csv_zip", "rest_json", "rest_xml"] },
+          "fields": { "type": "array", "items": { "type": "string" } },
+          "last_verified_at": { "type": "string", "format": "date-time" },
+          "trust_tier": { "type": "string", "enum": ["primary", "secondary"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "source_meta": { "$ref": "common.source-meta.schema.json" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verifier.output.schema.json",
+  "type": "object",
+  "required": ["verified", "diffs", "source_meta"],
+  "properties": {
+    "verified": { "type": "boolean" },
+    "diffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "draft", "raw"],
+        "properties": {
+          "field": { "type": "string" },
+          "draft": {},
+          "raw": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "source_meta": { "$ref": "common.source-meta.schema.json" }
+  },
+  "additionalProperties": false
+}

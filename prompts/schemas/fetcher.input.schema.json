@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fetcher.input.schema.json",
+  "type": "object",
+  "required": ["mode"],
+  "properties": {
+    "mode": { "type": "string", "enum": ["bulk_ingest", "rest_spot_check"] },
+    "vehicle_ids": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
+    }
+  },
+  "additionalProperties": false
+}

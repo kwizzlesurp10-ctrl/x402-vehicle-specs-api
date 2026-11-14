@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scout.input.schema.json",
+  "type": "object",
+  "required": ["task"],
+  "properties": {
+    "task": {
+      "type": "string",
+      "enum": ["verify_sources", "refresh_registry", "detect_schema_drift"]
+    },
+    "registry_path": { "type": "string", "default": "prompts/source-registry.json" }
+  },
+  "additionalProperties": false
+}

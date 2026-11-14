@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.source-meta.schema.json",
+  "type": "object",
+  "required": ["source", "source_urls", "retrieval_date"],
+  "properties": {
+    "source": { "type": "string", "const": "EPA FuelEconomy.gov" },
+    "source_urls": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" },
+      "minItems": 1
+    },
+    "retrieval_date": { "type": "string", "format": "date-time" },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

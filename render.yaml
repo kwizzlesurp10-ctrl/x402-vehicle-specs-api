@@ -1,0 +1,26 @@
+# Optional: long-lived Node server (alternative to Vercel serverless).
+# Primary path: Vercel + Supabase — see README.
+services:
+  - type: web
+    name: x402-vehicle-specs-api
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: PAY_TO_ADDRESS
+        sync: false
+      - key: X402_NETWORK
+        value: base-sepolia
+      - key: FACILITATOR_URL
+        value: https://x402.org/facilitator
+      - key: LLM_PROVIDER
+        value: xai
+      - key: LLM_API_KEY
+        sync: false

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jobs.trend_insights.input.schema.json",
+  "type": "object",
+  "required": ["year_start", "year_end"],
+  "properties": {
+    "year_start": { "type": "integer", "minimum": 1984 },
+    "year_end": { "type": "integer", "minimum": 1984 },
+    "vehicle_class": { "type": "string" }
+  }
+}

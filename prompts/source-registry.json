@@ -1,0 +1,46 @@
+{
+  "sources": [
+    {
+      "name": "EPA vehicles bulk CSV",
+      "url": "https://fueleconomy.gov/feg/epadata/vehicles.csv.zip",
+      "format": "csv_zip",
+      "trust_tier": "primary",
+      "fields": [
+        "id",
+        "year",
+        "make",
+        "model",
+        "VClass",
+        "drive",
+        "trany",
+        "trans_dscr",
+        "fuelType1",
+        "fuelType",
+        "cylinders",
+        "displ",
+        "city08",
+        "highway08",
+        "comb08",
+        "co2",
+        "co2TailpipeGpm",
+        "ghgScore",
+        "feScore",
+        "modifiedOn"
+      ]
+    },
+    {
+      "name": "EPA emissions bulk CSV",
+      "url": "https://fueleconomy.gov/feg/epadata/emissions.csv.zip",
+      "format": "csv_zip",
+      "trust_tier": "primary",
+      "fields": ["id", "score", "smartwayScore", "standard", "stdText"]
+    },
+    {
+      "name": "EPA vehicle REST",
+      "url": "https://fueleconomy.gov/ws/rest/vehicle/{id}",
+      "format": "rest_xml",
+      "trust_tier": "secondary",
+      "fields": ["vehicle"]
+    }
+  ]
+}

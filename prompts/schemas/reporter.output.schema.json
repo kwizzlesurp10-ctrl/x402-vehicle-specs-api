@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reporter.output.schema.json",
+  "type": "object",
+  "required": [
+    "short_answer",
+    "data_table",
+    "confidence",
+    "sources",
+    "gaps",
+    "source_meta"
+  ],
+  "properties": {
+    "short_answer": { "type": "string" },
+    "data_table": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "value", "unit"],
+        "properties": {
+          "field": { "type": "string" },
+          "value": {},
+          "unit": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+    "sources": { "type": "array", "items": { "type": "string" } },
+    "gaps": { "type": "array", "items": { "type": "string" } },
+    "source_meta": { "$ref": "common.source-meta.schema.json" }
+  },
+  "additionalProperties": false
+}

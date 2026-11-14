@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reporter.input.schema.json",
+  "type": "object",
+  "required": ["verified_vehicle", "verifier"],
+  "properties": {
+    "verified_vehicle": { "type": "object", "additionalProperties": true },
+    "verifier": { "type": "object", "additionalProperties": true },
+    "audience": {
+      "type": "string",
+      "enum": ["shop_technician", "agent_tool"]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "normalizer.output.schema.json",
+  "type": "object",
+  "required": ["records", "dedupe_report", "source_meta"],
+  "properties": {
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "year", "make", "model"],
+        "properties": {
+          "id": { "type": "integer" },
+          "year": { "type": "integer" },
+          "make": { "type": "string" },
+          "model": { "type": "string" },
+          "search_make": { "type": "string" },
+          "search_model": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "dedupe_report": {
+      "type": "object",
+      "properties": {
+        "input_count": { "type": "integer" },
+        "output_count": { "type": "integer" },
+        "merged_groups": { "type": "integer" }
+      }
+    },
+    "source_meta": { "$ref": "common.source-meta.schema.json" }
+  },
+  "additionalProperties": false
+}
