@@ -115,6 +115,9 @@ export type JobRecord = {
   refund_eligible: number;
   verifier_passed: number | null;
   tokens_used: number;
+  attempt_count: number;
+  max_attempts: number;
+  next_run_at: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
