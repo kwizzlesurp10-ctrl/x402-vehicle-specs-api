@@ -1,7 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "rewrites": [
+    { "source": "/.well-known/x402.json", "destination": "/api/.well-known/x402.json" },
+    { "source": "/openapi.json", "destination": "/api/openapi.json" },
+    { "source": "/llms.txt", "destination": "/api/llms.txt" },
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/", "destination": "/api" },
+    { "source": "/(.*)", "destination": "/api" }
+  ],
   "functions": {
     "api/index.ts": {
       "maxDuration": 300,

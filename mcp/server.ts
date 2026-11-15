@@ -8,6 +8,8 @@ import { createApp } from "../src/api/app.js";
 import { loadEnv } from "../src/config/env.js";
 import { createDbExecutor } from "../src/db/client.js";
 
+const remoteApiBase = process.env.API_BASE_URL?.replace(/\/$/, "");
+
 const env = loadEnv(
   process.env.PAY_TO_ADDRESS
     ? { PAY_TO_ADDRESS: process.env.PAY_TO_ADDRESS }
@@ -16,13 +18,30 @@ const env = loadEnv(
         LLM_PROVIDER: "mock",
       },
 );
-const db = await createDbExecutor(env);
-const app = createApp({ db, env, enablePayments: false });
+
+const localApp = remoteApiBase
+  ? null
+  : await (async () => {
+      const db = await createDbExecutor(env);
+      return createApp({ db, env, enablePayments: false });
+    })();
+
+async function requestApi(pathWithQuery: string): Promise<Response> {
+  if (remoteApiBase) {
+    return fetch(`${remoteApiBase}${pathWithQuery}`);
+  }
+  if (!localApp) {
+    throw new Error("MCP server is not configured (set API_BASE_URL or local DB)");
+  }
+  return localApp.request(pathWithQuery);
+}
 
 const tools = [
   {
     name: "vehicle_search",
-    description: "Search EPA vehicles (MCP wrapper; no x402 settlement).",
+    description: remoteApiBase
+      ? `Search EPA vehicles via ${remoteApiBase} (x402 paid on production; MCP does not settle).`
+      : "Search EPA vehicles (MCP wrapper; no x402 settlement).",
     inputSchema: {
       type: "object",
       properties: {
@@ -34,7 +53,9 @@ const tools = [
   },
   {
     name: "vehicle_get",
-    description: "Get full vehicle specs by EPA id",
+    description: remoteApiBase
+      ? `Get vehicle specs by EPA id from ${remoteApiBase}`
+      : "Get full vehicle specs by EPA id",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -63,14 +84,14 @@ async function main(): Promise<void> {
       if (year) qs.set("year", String(year));
       if (make) qs.set("make", make);
       if (model) qs.set("model", model);
-      const res = await app.request(`/v1/vehicles/search?${qs.toString()}`);
+      const res = await requestApi(`/v1/vehicles/search?${qs.toString()}`);
       return {
         content: [{ type: "text", text: await res.text() }],
       };
     }
     if (name === "vehicle_get") {
       const id = args?.id as number;
-      const res = await app.request(`/v1/vehicles/${id}`);
+      const res = await requestApi(`/v1/vehicles/${id}`);
       return {
         content: [{ type: "text", text: await res.text() }],
       };

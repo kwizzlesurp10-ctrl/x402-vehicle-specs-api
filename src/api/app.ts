@@ -5,6 +5,11 @@ import type { DbExecutor } from "../db/executor.js";
 import { withSource } from "../lib/attribution.js";
 import { err, ok, type Result } from "../lib/result.js";
 import { buildOpenApiDocument } from "./openapi.js";
+import {
+  buildLandingJson,
+  buildLlmsTxt,
+  buildPublicUrls,
+} from "./llms-txt.js";
 import { VehicleRepository } from "./repository.js";
 import { buildSourceMeta, serializeVehicle } from "./serializers.js";
 import { JOB_BODY_KEY, createJobsPaymentMiddleware } from "./jobs-payment.js";
@@ -70,8 +75,49 @@ export function createApp(options: CreateAppOptions): Hono {
     return c.json(await buildJobsHealthPayload(db, env));
   });
 
-  app.get("/openapi.json", (c) => c.json(buildOpenApiDocument(env)));
-  app.get("/.well-known/x402.json", (c) => c.json(buildOpenApiDocument(env)));
+  app.get("/", (c) => {
+    const { publicBaseUrl } = buildPublicUrls(env, c.req.url);
+    const accept = c.req.header("accept") ?? "";
+    if (accept.includes("text/html")) {
+      const landing = buildLandingJson(env, publicBaseUrl);
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>x402 Vehicle Specs API</title>
+</head>
+<body>
+  <h1>x402 Vehicle Specs API</h1>
+  <p>EPA <a href="https://fueleconomy.gov/">FuelEconomy.gov</a> vehicle data with x402 micropayments.</p>
+  <ul>
+    <li><a href="${publicBaseUrl}/llms.txt">llms.txt</a></li>
+    <li><a href="${publicBaseUrl}/openapi.json">openapi.json</a></li>
+    <li><a href="${publicBaseUrl}/.well-known/x402.json">.well-known/x402.json</a></li>
+    <li><a href="${publicBaseUrl}/health">health</a></li>
+  </ul>
+  <pre>${JSON.stringify(landing, null, 2)}</pre>
+</body>
+</html>`;
+      return c.html(html);
+    }
+    return c.json(buildLandingJson(env, publicBaseUrl));
+  });
+
+  app.get("/llms.txt", (c) => {
+    const { publicBaseUrl } = buildPublicUrls(env, c.req.url);
+    return c.text(buildLlmsTxt(env, publicBaseUrl), 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+  });
+
+  app.get("/openapi.json", (c) => {
+    const { publicBaseUrl } = buildPublicUrls(env, c.req.url);
+    return c.json(buildOpenApiDocument(env, publicBaseUrl));
+  });
+  app.get("/.well-known/x402.json", (c) => {
+    const { publicBaseUrl } = buildPublicUrls(env, c.req.url);
+    return c.json(buildOpenApiDocument(env, publicBaseUrl));
+  });
 
   app.get("/cron/ingest", async (c) => {
     if (!isAuthorizedCron(c, env)) {
