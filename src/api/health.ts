@@ -1,7 +1,12 @@
 import type { AppEnv } from "../config/env.js";
+import { listPendingMigration003 } from "../db/migration-003-capabilities.js";
 import { getIngestMetadata } from "../db/client.js";
 import type { DbExecutor } from "../db/executor.js";
-import { getCronMetadata, getJobsQueueStats } from "../jobs/queue-stats.js";
+import {
+  getCronMetadata,
+  getJobsQueueStats,
+  nullCronHealthFields,
+} from "../jobs/queue-stats.js";
 
 export async function buildHealthPayload(
   db: DbExecutor,
@@ -10,8 +15,9 @@ export async function buildHealthPayload(
   const metadata = await getIngestMetadata(db);
   const queueStats = await getJobsQueueStats(db, env.JOB_RUN_LEASE_MS);
   const cronMeta = await getCronMetadata(db);
+  const migrations_pending = await listPendingMigration003(db);
 
-  return {
+  const payload: Record<string, unknown> = {
     status: "ok",
     database: env.DATABASE_URL ? "postgres" : "pglite",
     vehicles_indexed: metadata?.vehicle_row_count ?? 0,
@@ -27,14 +33,7 @@ export async function buildHealthPayload(
           ingest_last_ok: cronMeta.ingest_cron_last_ok,
           ingest_last_summary: cronMeta.ingest_cron_last_summary,
         }
-      : {
-          jobs_last_run_at: null,
-          jobs_last_ok: null,
-          jobs_last_summary: null,
-          ingest_last_run_at: null,
-          ingest_last_ok: null,
-          ingest_last_summary: null,
-        },
+      : nullCronHealthFields(),
     cron_auth:
       env.CRON_SECRET !== undefined && env.CRON_SECRET.length > 0
         ? "bearer_secret_required"
@@ -42,6 +41,12 @@ export async function buildHealthPayload(
           ? "misconfigured"
           : "open_in_dev",
   };
+
+  if (migrations_pending.length > 0) {
+    payload.migrations_pending = migrations_pending;
+  }
+
+  return payload;
 }
 
 export async function buildJobsHealthPayload(
@@ -50,11 +55,19 @@ export async function buildJobsHealthPayload(
 ): Promise<Record<string, unknown>> {
   const queueStats = await getJobsQueueStats(db, env.JOB_RUN_LEASE_MS);
   const cronMeta = await getCronMetadata(db);
-  return {
+  const migrations_pending = await listPendingMigration003(db);
+
+  const payload: Record<string, unknown> = {
     status: "ok",
     jobs_queue: queueStats,
     jobs_cron_last_run_at: cronMeta?.jobs_cron_last_run_at ?? null,
     jobs_cron_last_ok: cronMeta?.jobs_cron_last_ok ?? null,
     jobs_cron_last_summary: cronMeta?.jobs_cron_last_summary ?? null,
   };
+
+  if (migrations_pending.length > 0) {
+    payload.migrations_pending = migrations_pending;
+  }
+
+  return payload;
 }
