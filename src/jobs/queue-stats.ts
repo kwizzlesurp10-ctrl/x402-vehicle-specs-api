@@ -1,4 +1,14 @@
+import {
+  emptyCronMetadata,
+  getMigration003Capabilities,
+  noteMigration003ColumnError,
+} from "../db/migration-003-capabilities.js";
 import type { DbExecutor } from "../db/executor.js";
+import {
+  isUndefinedColumnError,
+  undefinedColumnName,
+} from "../db/postgres-errors.js";
+import { logJobsEvent } from "../lib/job-logger.js";
 import type { JobStatus } from "./types.js";
 
 export type JobsQueueStats = {
@@ -50,34 +60,43 @@ export async function getJobsQueueStats(
      FROM jobs WHERE status = 'queued'`,
   );
 
-  const stuck = await db.queryOne<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM jobs
-     WHERE status = 'running'
-       AND started_at IS NOT NULL
-       AND started_at < now() - ($1::int * interval '1 millisecond')`,
-    [stuckLeaseMs],
-  );
+  const caps = await getMigration003Capabilities(db);
+  let stuck_running_count = 0;
+  if (caps.jobReliability) {
+    const stuck = await db.queryOne<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM jobs
+       WHERE status = 'running'
+         AND started_at IS NOT NULL
+         AND started_at < now() - ($1::int * interval '1 millisecond')`,
+      [stuckLeaseMs],
+    );
+    stuck_running_count = stuck?.count ?? 0;
+  }
 
   return {
     by_status,
     queued_count,
     running_count,
     oldest_pending_age_seconds: oldest?.age_seconds ?? null,
-    stuck_running_count: stuck?.count ?? 0,
+    stuck_running_count,
   };
 }
 
 export async function getCronMetadata(db: DbExecutor): Promise<CronMetadata | null> {
-  return db.queryOne<CronMetadata & { jobs_cron_last_summary: unknown }>(
-    `SELECT
-       jobs_cron_last_run_at::text,
-       jobs_cron_last_ok,
-       jobs_cron_last_summary,
-       ingest_cron_last_run_at::text,
-       ingest_cron_last_ok,
-       ingest_cron_last_summary
-     FROM ingest_metadata WHERE id = 1`,
-  ).then((row) => {
+  const caps = await getMigration003Capabilities(db);
+  if (!caps.cronObservability) return null;
+
+  try {
+    const row = await db.queryOne<CronMetadata & { jobs_cron_last_summary: unknown }>(
+      `SELECT
+         jobs_cron_last_run_at::text,
+         jobs_cron_last_ok,
+         jobs_cron_last_summary,
+         ingest_cron_last_run_at::text,
+         ingest_cron_last_ok,
+         ingest_cron_last_summary
+       FROM ingest_metadata WHERE id = 1`,
+    );
     if (!row) return null;
     return {
       jobs_cron_last_run_at: row.jobs_cron_last_run_at,
@@ -87,7 +106,13 @@ export async function getCronMetadata(db: DbExecutor): Promise<CronMetadata | nu
       ingest_cron_last_ok: row.ingest_cron_last_ok,
       ingest_cron_last_summary: parseSummary(row.ingest_cron_last_summary),
     };
-  });
+  } catch (error) {
+    if (isUndefinedColumnError(error)) {
+      noteMigration003ColumnError(error);
+      return null;
+    }
+    throw error;
+  }
 }
 
 function parseSummary(raw: unknown): CronRunSummary | null {
@@ -103,19 +128,50 @@ function parseSummary(raw: unknown): CronRunSummary | null {
   return null;
 }
 
+async function writeCronMetadata(
+  db: DbExecutor,
+  cronKind: "jobs" | "ingest",
+  ok: boolean,
+  summary: CronRunSummary,
+): Promise<void> {
+  const caps = await getMigration003Capabilities(db);
+  if (!caps.cronObservability) return;
+
+  const sql =
+    cronKind === "jobs"
+      ? `UPDATE ingest_metadata SET
+           jobs_cron_last_run_at = now(),
+           jobs_cron_last_ok = $1,
+           jobs_cron_last_summary = $2::jsonb
+         WHERE id = 1`
+      : `UPDATE ingest_metadata SET
+           ingest_cron_last_run_at = now(),
+           ingest_cron_last_ok = $1,
+           ingest_cron_last_summary = $2::jsonb
+         WHERE id = 1`;
+
+  try {
+    await db.queryRows(sql, [ok, JSON.stringify(summary)]);
+  } catch (error) {
+    if (isUndefinedColumnError(error)) {
+      noteMigration003ColumnError(error);
+      logJobsEvent("cron_metadata_write_skipped", {
+        cron: cronKind,
+        reason: "migration_003_columns_missing",
+        column: undefinedColumnName(error) ?? "unknown",
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function recordJobsCronRun(
   db: DbExecutor,
   ok: boolean,
   summary: CronRunSummary,
 ): Promise<void> {
-  await db.queryRows(
-    `UPDATE ingest_metadata SET
-       jobs_cron_last_run_at = now(),
-       jobs_cron_last_ok = $1,
-       jobs_cron_last_summary = $2::jsonb
-     WHERE id = 1`,
-    [ok, JSON.stringify(summary)],
-  );
+  await writeCronMetadata(db, "jobs", ok, summary);
 }
 
 export async function recordIngestCronRun(
@@ -123,12 +179,17 @@ export async function recordIngestCronRun(
   ok: boolean,
   summary: CronRunSummary,
 ): Promise<void> {
-  await db.queryRows(
-    `UPDATE ingest_metadata SET
-       ingest_cron_last_run_at = now(),
-       ingest_cron_last_ok = $1,
-       ingest_cron_last_summary = $2::jsonb
-     WHERE id = 1`,
-    [ok, JSON.stringify(summary)],
-  );
+  await writeCronMetadata(db, "ingest", ok, summary);
+}
+
+export function nullCronHealthFields(): Record<string, null> {
+  const empty = emptyCronMetadata();
+  return {
+    jobs_last_run_at: empty.jobs_cron_last_run_at,
+    jobs_last_ok: empty.jobs_cron_last_ok,
+    jobs_last_summary: empty.jobs_cron_last_summary,
+    ingest_last_run_at: empty.ingest_cron_last_run_at,
+    ingest_last_ok: empty.ingest_cron_last_ok,
+    ingest_last_summary: empty.ingest_cron_last_summary,
+  };
 }

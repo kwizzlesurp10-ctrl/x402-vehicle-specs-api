@@ -1,6 +1,11 @@
 import { loadEnv, type AppEnv } from "../src/config/env.js";
-import { createDbExecutor } from "../src/db/client.js";
+import {
+  createDbExecutor,
+  loadMigrationSqlExcluding,
+} from "../src/db/client.js";
+import { resetMigration003CapabilitiesCache } from "../src/db/migration-003-capabilities.js";
 import type { DbExecutor } from "../src/db/executor.js";
+import { createPgliteExecutor } from "../src/db/pglite.js";
 
 export function testEnv(): AppEnv {
   return loadEnv({
@@ -13,4 +18,9 @@ export function testEnv(): AppEnv {
 
 export async function createTestDb(): Promise<DbExecutor> {
   return createDbExecutor(testEnv());
+}
+
+export async function createTestDbBeforeMigration003(): Promise<DbExecutor> {
+  resetMigration003CapabilitiesCache();
+  return createPgliteExecutor(loadMigrationSqlExcluding("003_"));
 }

@@ -47,11 +47,21 @@ const migrationsDir = path.join(
   "../../migrations",
 );
 
-export function loadMigrationSql(): string {
-  const files = readdirSync(migrationsDir)
+function listMigrationFiles(excludePrefix?: string): string[] {
+  return readdirSync(migrationsDir)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
+    .filter((name) => !excludePrefix || !name.startsWith(excludePrefix))
     .sort((a, b) => a.localeCompare(b));
-  return files
+}
+
+export function loadMigrationSql(): string {
+  return listMigrationFiles()
+    .map((name) => readFileSync(path.join(migrationsDir, name), "utf8"))
+    .join("\n\n");
+}
+
+export function loadMigrationSqlExcluding(excludePrefix: string): string {
+  return listMigrationFiles(excludePrefix)
     .map((name) => readFileSync(path.join(migrationsDir, name), "utf8"))
     .join("\n\n");
 }

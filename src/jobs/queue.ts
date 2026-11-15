@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getMigration003Capabilities } from "../db/migration-003-capabilities.js";
 import type { DbExecutor } from "../db/executor.js";
 import type { JobDepth, JobRecord, JobSubmitRequest, JobType } from "./types.js";
 
@@ -66,6 +67,11 @@ function mapJob(row: JobRowDb): JobRecord {
 export class JobQueue {
   constructor(private readonly db: DbExecutor) {}
 
+  private async jobReliabilityEnabled(): Promise<boolean> {
+    const caps = await getMigration003Capabilities(this.db);
+    return caps.jobReliability;
+  }
+
   async createJob(params: {
     request: JobSubmitRequest;
     paymentUsd: number;
@@ -81,24 +87,40 @@ export class JobQueue {
         : {}),
     };
 
-    const row = await this.db.queryOne<JobRowDb>(
-      `INSERT INTO jobs (
-          id, type, depth, status, input_json, payment_usd, webhook_url, max_attempts
-        ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6, $7)
-        RETURNING *`,
-      [
-        id,
-        params.request.type,
-        params.request.depth,
-        JSON.stringify(inputPayload),
-        params.paymentUsd,
-        params.request.webhook_url ?? null,
-        params.maxAttempts,
-      ],
-    );
+    const reliability = await this.jobReliabilityEnabled();
+    const row = reliability
+      ? await this.db.queryOne<JobRowDb>(
+          `INSERT INTO jobs (
+              id, type, depth, status, input_json, payment_usd, webhook_url, max_attempts
+            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6, $7)
+            RETURNING *`,
+          [
+            id,
+            params.request.type,
+            params.request.depth,
+            JSON.stringify(inputPayload),
+            params.paymentUsd,
+            params.request.webhook_url ?? null,
+            params.maxAttempts,
+          ],
+        )
+      : await this.db.queryOne<JobRowDb>(
+          `INSERT INTO jobs (
+              id, type, depth, status, input_json, payment_usd, webhook_url
+            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6)
+            RETURNING *`,
+          [
+            id,
+            params.request.type,
+            params.request.depth,
+            JSON.stringify(inputPayload),
+            params.paymentUsd,
+            params.request.webhook_url ?? null,
+          ],
+        );
 
     if (!row) throw new Error("failed to create job");
-    return mapJob(row);
+    return mapJob({ ...row, max_attempts: row.max_attempts ?? params.maxAttempts });
   }
 
   async getById(id: string): Promise<JobRecord | null> {
@@ -109,42 +131,67 @@ export class JobQueue {
   }
 
   async claimNext(): Promise<JobRecord | null> {
-    const row = await this.db.queryOne<JobRowDb>(
-      `WITH picked AS (
-         SELECT id FROM jobs
-         WHERE status = 'queued'
-           AND (next_run_at IS NULL OR next_run_at <= now())
-         ORDER BY created_at ASC
-         LIMIT 1
-         FOR UPDATE SKIP LOCKED
-       )
-       UPDATE jobs j
-       SET status = 'running',
-           started_at = now(),
-           updated_at = now(),
-           attempt_count = j.attempt_count + 1,
-           next_run_at = NULL
-       FROM picked
-       WHERE j.id = picked.id
-       RETURNING j.*`,
-    );
+    const reliability = await this.jobReliabilityEnabled();
+    const row = reliability
+      ? await this.db.queryOne<JobRowDb>(
+          `WITH picked AS (
+             SELECT id FROM jobs
+             WHERE status = 'queued'
+               AND (next_run_at IS NULL OR next_run_at <= now())
+             ORDER BY created_at ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE jobs j
+           SET status = 'running',
+               started_at = now(),
+               updated_at = now(),
+               attempt_count = j.attempt_count + 1,
+               next_run_at = NULL
+           FROM picked
+           WHERE j.id = picked.id
+           RETURNING j.*`,
+        )
+      : await this.db.queryOne<JobRowDb>(
+          `WITH picked AS (
+             SELECT id FROM jobs
+             WHERE status = 'queued'
+             ORDER BY created_at ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE jobs j
+           SET status = 'running', started_at = now(), updated_at = now()
+           FROM picked
+           WHERE j.id = picked.id
+           RETURNING j.*`,
+        );
     return row ? mapJob(row) : null;
   }
 
   async claimById(jobId: string): Promise<JobRecord | null> {
-    const row = await this.db.queryOne<JobRowDb>(
-      `UPDATE jobs
-       SET status = 'running',
-           started_at = now(),
-           updated_at = now(),
-           attempt_count = attempt_count + 1,
-           next_run_at = NULL
-       WHERE id = $1
-         AND status = 'queued'
-         AND (next_run_at IS NULL OR next_run_at <= now())
-       RETURNING *`,
-      [jobId],
-    );
+    const reliability = await this.jobReliabilityEnabled();
+    const row = reliability
+      ? await this.db.queryOne<JobRowDb>(
+          `UPDATE jobs
+           SET status = 'running',
+               started_at = now(),
+               updated_at = now(),
+               attempt_count = attempt_count + 1,
+               next_run_at = NULL
+           WHERE id = $1
+             AND status = 'queued'
+             AND (next_run_at IS NULL OR next_run_at <= now())
+           RETURNING *`,
+          [jobId],
+        )
+      : await this.db.queryOne<JobRowDb>(
+          `UPDATE jobs
+           SET status = 'running', started_at = now(), updated_at = now()
+           WHERE id = $1 AND status = 'queued'
+           RETURNING *`,
+          [jobId],
+        );
     return row ? mapJob(row) : null;
   }
 
@@ -152,6 +199,10 @@ export class JobQueue {
     leaseMs: number;
     retryBackoffMs: number;
   }): Promise<ReclaimStuckResult> {
+    if (!(await this.jobReliabilityEnabled())) {
+      return { requeued: 0, failed: 0, reclaimed_ids: [] };
+    }
+
     const stuck = await this.db.queryRows<{ id: string; attempt_count: number; max_attempts: number }>(
       `SELECT id, attempt_count, max_attempts FROM jobs
        WHERE status = 'running'
@@ -203,17 +254,29 @@ export class JobQueue {
     errorMessage: string,
     backoffMs: number,
   ): Promise<boolean> {
-    const row = await this.db.queryOne<{ id: string }>(
-      `UPDATE jobs SET
-          status = 'queued',
-          started_at = NULL,
-          error_message = $2,
-          next_run_at = now() + ($3::int * interval '1 millisecond'),
-          updated_at = now()
-       WHERE id = $1 AND status = 'running'
-       RETURNING id`,
-      [jobId, errorMessage, backoffMs],
-    );
+    const reliability = await this.jobReliabilityEnabled();
+    const row = reliability
+      ? await this.db.queryOne<{ id: string }>(
+          `UPDATE jobs SET
+              status = 'queued',
+              started_at = NULL,
+              error_message = $2,
+              next_run_at = now() + ($3::int * interval '1 millisecond'),
+              updated_at = now()
+           WHERE id = $1 AND status = 'running'
+           RETURNING id`,
+          [jobId, errorMessage, backoffMs],
+        )
+      : await this.db.queryOne<{ id: string }>(
+          `UPDATE jobs SET
+              status = 'queued',
+              started_at = NULL,
+              error_message = $2,
+              updated_at = now()
+           WHERE id = $1 AND status = 'running'
+           RETURNING id`,
+          [jobId, errorMessage],
+        );
     return Boolean(row);
   }
 
