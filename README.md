@@ -2,6 +2,17 @@
 
 Pay-per-call [x402](https://docs.x402.org/) API (USDC on Base) serving **EPA [FuelEconomy.gov](https://fueleconomy.gov/)** vehicle records from **1984–present**. Built for auto shops, technicians, and agent tools that need reproducible MPG, engine, drivetrain, transmission, fuel, and emissions fields.
 
+**Production:** https://x402-vehicle-specs-api.vercel.app
+
+| Discovery | URL |
+| --- | --- |
+| Landing | https://x402-vehicle-specs-api.vercel.app/ |
+| `llms.txt` | https://x402-vehicle-specs-api.vercel.app/llms.txt |
+| OpenAPI / x402 manifest | https://x402-vehicle-specs-api.vercel.app/openapi.json (same JSON at `/.well-known/x402.json`) |
+| Health | https://x402-vehicle-specs-api.vercel.app/health |
+
+Paid data routes live under `/api/v1/...` on Vercel (e.g. `/api/v1/vehicles/search`). Root paths above rewrite to `/api/*` so agents can use standard discovery URLs without the prefix.
+
 ## Features
 
 - Bulk ingest from EPA `vehicles.csv.zip` + `emissions.csv.zip` into **Postgres** (Supabase) with batched upserts
@@ -36,8 +47,11 @@ Every JSON response includes `meta.source`, `meta.source_urls`, and `meta.update
 | `GET /v1/makes?year` | free | — |
 | `GET /v1/models?year&make` | free | — |
 | `GET /openapi.json`, `GET /.well-known/x402.json` | free | — |
+| `GET /llms.txt`, `GET /` (landing) | free | — |
 
 Set `PRICE_*` and `PAY_TO_ADDRESS` in `.env` (see `.env.example`).
+
+Paid routes declare **Bazaar** discovery metadata (`@x402/extensions/bazaar`) so facilitators such as [CDP Bazaar](https://docs.cdp.coinbase.com/) can index discoverable resources.
 
 ### Swarm job pricing (configurable)
 
@@ -118,7 +132,7 @@ Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
 4. Run migrations + initial ingest locally or via [`.github/workflows/ingest-weekly.yml`](.github/workflows/ingest-weekly.yml) (`workflow_dispatch` + weekly schedule using `DIRECT_URL` secret).
 5. Protect cron routes: `Authorization: Bearer <CRON_SECRET>`.
 
-Production URLs are under `/api` (e.g. `/api/health`, `/api/v1/vehicles/search`).
+Production URLs are under `/api` (e.g. `/api/health`, `/api/v1/vehicles/search`). Root discovery paths (`/health`, `/openapi.json`, `/.well-known/x402.json`, `/llms.txt`, `/`) rewrite to `/api` equivalents for agent discovery.
 
 ## Optional: Render
 
@@ -143,6 +157,8 @@ curl -i "http://127.0.0.1:8787/v1/vehicles/25262"
 | `DIRECT_URL` | Direct Postgres URL for migrations/ingest (:5432) |
 | `CRON_SECRET` | Bearer token for `/cron/*` on Vercel |
 | `API_BASE_PATH` | `/api` on Vercel; `/` locally |
+| `PUBLIC_BASE_URL` | Optional override for OpenAPI `servers` URL and `llms.txt` (default: request host + `API_BASE_PATH`, else production URL) |
+| `API_BASE_URL` | MCP only: remote API base (e.g. `https://x402-vehicle-specs-api.vercel.app/api`) |
 | `PAY_TO_ADDRESS` | **Required.** EVM address receiving USDC |
 | `X402_NETWORK` | `base-sepolia` (default) or `base` |
 | `FACILITATOR_URL` | x402 facilitator (default `https://x402.org/facilitator`) |
@@ -160,6 +176,27 @@ Per-agent instructions + JSON Schema I/O live in:
 - [`prompts/`](prompts/) — Orchestrator, Scout, Fetcher, Normalizer, Analyst, Verifier, Reporter
 - [`prompts/schemas/`](prompts/schemas/) — input/output schemas
 - [`prompts/source-registry.json`](prompts/source-registry.json) — Scout registry seed
+
+## MCP (stdio)
+
+The stdio MCP server can call **production** without a local database by setting `API_BASE_URL` (include the `/api` prefix on Vercel).
+
+```json
+{
+  "mcpServers": {
+    "x402-vehicle-specs": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "cwd": "/path/to/x402-vehicle-specs-api",
+      "env": {
+        "API_BASE_URL": "https://x402-vehicle-specs-api.vercel.app/api"
+      }
+    }
+  }
+}
+```
+
+Paid routes still require x402 settlement on the live API; the MCP wrapper returns raw API responses (402 bodies when unpaid). For local PGlite-backed tools, omit `API_BASE_URL` and set `PAY_TO_ADDRESS` as in quick start.
 
 ## Development
 

@@ -2,7 +2,10 @@ import type { AppEnv } from "../config/env.js";
 import { CAIP2_BY_NETWORK, formatUsdPrice } from "../config/env.js";
 import { jobPriceTable } from "../jobs/pricing.js";
 
-export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
+export function buildOpenApiDocument(
+  env: AppEnv,
+  publicBaseUrl: string,
+): Record<string, unknown> {
   const network = CAIP2_BY_NETWORK[env.X402_NETWORK];
   return {
     openapi: "3.1.0",
@@ -12,7 +15,7 @@ export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
       description:
         "EPA fueleconomy.gov vehicle specifications with x402 (USDC on Base) micropayments and paid swarm analysis jobs.",
     },
-    servers: [{ url: "/" }],
+    servers: [{ url: publicBaseUrl }],
     "x-x402": {
       protocol: "x402",
       network,
@@ -28,13 +31,16 @@ export function buildOpenApiDocument(env: AppEnv): Record<string, unknown> {
         ...jobPriceTable(env),
       },
       free_endpoints: [
+        "GET /",
         "GET /health",
+        "GET /llms.txt",
         "GET /v1/makes",
         "GET /v1/models",
         "GET /v1/jobs/:id",
         "GET /openapi.json",
         "GET /.well-known/x402.json",
       ],
+      bazaar: "Paid routes declare discoverable Bazaar metadata (extensions.bazaar) for facilitator catalogs.",
     },
     paths: {
       "/health": { get: { summary: "Health check (free)" } },

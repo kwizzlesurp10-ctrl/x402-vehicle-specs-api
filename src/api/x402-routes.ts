@@ -8,6 +8,13 @@ import {
   formatUsdPrice,
   type Caip2Network,
 } from "../config/env.js";
+import {
+  bazaarCompare,
+  bazaarStats,
+  bazaarVehicleById,
+  bazaarVehicleEmissions,
+  bazaarVehicleSearch,
+} from "./bazaar-metadata.js";
 
 export type PaymentLayer = {
   middleware: MiddlewareHandler;
@@ -39,6 +46,9 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
         },
         description: "Search EPA vehicle records",
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["vehicles", "search", "epa"],
+        extensions: bazaarVehicleSearch,
       },
       "GET /v1/vehicles/:id": {
         accepts: {
@@ -47,6 +57,9 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
         },
         description: "Vehicle specifications by EPA ID",
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["vehicles", "epa"],
+        extensions: bazaarVehicleById,
       },
       "GET /v1/vehicles/:id/emissions": {
         accepts: {
@@ -55,6 +68,9 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
         },
         description: "Emissions details by EPA ID",
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["vehicles", "emissions", "epa"],
+        extensions: bazaarVehicleEmissions,
       },
       "GET /v1/compare": {
         accepts: {
@@ -63,6 +79,9 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
         },
         description: "Compare multiple EPA vehicle IDs",
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["vehicles", "compare", "epa"],
+        extensions: bazaarCompare,
       },
       "GET /v1/stats": {
         accepts: {
@@ -71,6 +90,9 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
         },
         description: "Aggregate stats by model year and EPA vehicle class",
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["vehicles", "stats", "epa"],
+        extensions: bazaarStats,
       },
     },
     resourceServer,

@@ -8,6 +8,7 @@ import type { AppEnv } from "../config/env.js";
 import { CAIP2_BY_NETWORK, formatUsdPrice } from "../config/env.js";
 import { resolveJobPriceUsd } from "../jobs/pricing.js";
 import { jobSubmitSchema, type JobSubmitRequest } from "../jobs/types.js";
+import { bazaarPostJob } from "./bazaar-metadata.js";
 
 export const JOB_BODY_KEY = "jobSubmitBody";
 
@@ -43,6 +44,9 @@ export function createJobsPaymentMiddleware(
         },
         description: `Swarm job (${parsed.data.type}, ${parsed.data.depth})`,
         mimeType: "application/json",
+        serviceName: "vehicle-specs",
+        tags: ["jobs", "swarm", "analysis"],
+        extensions: bazaarPostJob,
       },
     });
 

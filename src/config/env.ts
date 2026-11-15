@@ -19,6 +19,7 @@ const envSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
   API_BASE_PATH: z.string().default(""),
+  PUBLIC_BASE_URL: z.string().url().optional(),
   DATABASE_URL: z.string().url().optional(),
   DIRECT_URL: z.string().url().optional(),
   CRON_SECRET: z.string().optional(),
