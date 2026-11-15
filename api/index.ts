@@ -1,8 +1,22 @@
 import { handle } from "hono/vercel";
 import { buildVercelApp } from "../src/vercel-app.js";
+import { rewriteRequestForApiMount } from "../src/vercel-request-path.js";
 
-const app = await buildVercelApp("/api");
-const handler = handle(app);
+const API_MOUNT = "/api";
+const app = await buildVercelApp(API_MOUNT);
+const vercelHandler = handle(app);
+
+type VercelHandler = (
+  request: Request,
+  context?: unknown,
+) => Response | Promise<Response>;
+
+function withApiPathRewrite(handler: VercelHandler): VercelHandler {
+  return (request, context) =>
+    handler(rewriteRequestForApiMount(request, API_MOUNT), context);
+}
+
+const handler = withApiPathRewrite(vercelHandler);
 
 export const GET = handler;
 export const POST = handler;

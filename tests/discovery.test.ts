@@ -12,7 +12,12 @@ import {
 import { resolvePublicBaseUrl } from "../src/lib/public-base-url.js";
 import { loadEnv } from "../src/config/env.js";
 import { createApp } from "../src/api/app.js";
+import { preparePaymentLayer } from "../src/api/x402-routes.js";
 import { createTestDb } from "./test-db.js";
+import {
+  normalizeVercelRequestPath,
+  rewriteRequestForApiMount,
+} from "../src/vercel-request-path.js";
 
 describe("agent discovery", () => {
   const env = loadEnv({
@@ -46,6 +51,23 @@ describe("agent discovery", () => {
       expect(ext.bazaar).toBeDefined();
       expect(ext.bazaar?.info?.input).toBeDefined();
     }
+  });
+
+  it("normalizes rewritten Vercel paths onto the /api mount", () => {
+    expect(normalizeVercelRequestPath("/llms.txt", "/api")).toBe(
+      "/api/llms.txt",
+    );
+    expect(normalizeVercelRequestPath("/health", "/api")).toBe("/api/health");
+    expect(
+      normalizeVercelRequestPath("/.well-known/x402.json", "/api"),
+    ).toBe("/api/.well-known/x402.json");
+    expect(normalizeVercelRequestPath("/", "/api")).toBe("/api");
+    expect(normalizeVercelRequestPath("/api/v1/makes", "/api")).toBe(
+      "/api/v1/makes",
+    );
+    expect(normalizeVercelRequestPath("/v1/makes", "/api")).toBe(
+      "/api/v1/makes",
+    );
   });
 
   it("vercel.json rewrites root discovery paths to /api", () => {
@@ -93,6 +115,56 @@ describe("discovery routes", () => {
     expect(landing.discovery.openapi).toBe(
       "https://x402-vehicle-specs-api.vercel.app/api/openapi.json",
     );
+
+    await db.close();
+  });
+
+  it("serves discovery routes when the incoming path omits /api (Vercel rewrite)", async () => {
+    const env = loadEnv({
+      NODE_ENV: "test",
+      LLM_PROVIDER: "mock",
+      FACILITATOR_URL: "https://x402.org/facilitator",
+      PAY_TO_ADDRESS: "0x0000000000000000000000000000000000000001",
+      API_BASE_PATH: "/api",
+    });
+    const db = await createTestDb();
+    const app = createApp({ db, env, enablePayments: false, basePath: "/api" });
+
+    const rewritten = rewriteRequestForApiMount(
+      new Request("https://x402-vehicle-specs-api.vercel.app/llms.txt"),
+      "/api",
+    );
+    expect(rewritten.url).toContain("/api/llms.txt");
+    const llms = await app.fetch(rewritten);
+    expect(llms.status).toBe(200);
+
+    const health = await app.fetch(
+      rewriteRequestForApiMount(
+        new Request("https://x402-vehicle-specs-api.vercel.app/health"),
+        "/api",
+      ),
+    );
+    expect(health.status).toBe(200);
+
+    const paymentLayer = await preparePaymentLayer(env);
+    const paidApp = createApp({
+      db,
+      env,
+      enablePayments: true,
+      paymentLayer,
+      basePath: "/api",
+    });
+    const unpaid = await paidApp.fetch(
+      rewriteRequestForApiMount(
+        new Request("https://x402-vehicle-specs-api.vercel.app/v1/vehicles/25262"),
+        "/api",
+      ),
+    );
+    expect(unpaid.status).toBe(402);
+    const paymentHeader =
+      unpaid.headers.get("payment-required") ??
+      unpaid.headers.get("PAYMENT-REQUIRED");
+    expect(paymentHeader).toBeTruthy();
 
     await db.close();
   });
