@@ -1,5 +1,6 @@
 import type { AppEnv } from "../config/env.js";
 import { CAIP2_BY_NETWORK, formatUsdPrice } from "../config/env.js";
+import { resolveFacilitatorPublicUrl } from "./facilitator.js";
 import { jobPriceTable } from "../jobs/pricing.js";
 
 export function buildOpenApiDocument(
@@ -19,7 +20,7 @@ export function buildOpenApiDocument(
     "x-x402": {
       protocol: "x402",
       network,
-      facilitator: env.FACILITATOR_URL,
+      facilitator: resolveFacilitatorPublicUrl(env),
       pay_to: env.PAY_TO_ADDRESS,
       currency: "USDC",
       pricing: {
@@ -36,7 +37,6 @@ export function buildOpenApiDocument(
         "GET /llms.txt",
         "GET /v1/makes",
         "GET /v1/models",
-        "GET /v1/jobs/:id",
         "GET /openapi.json",
         "GET /.well-known/x402.json",
       ],
@@ -61,11 +61,15 @@ export function buildOpenApiDocument(
         post: {
           summary: "Enqueue paid swarm analysis job (x402, tiered pricing)",
           description:
-            "Returns 202 + job_id immediately. Poll GET /v1/jobs/:id (free). Optional webhook_url for completion callback.",
+            "Settlement uses paymentFlow=upfront before the handler runs. Returns 202 with poll_token. Poll GET /v1/jobs/:id?poll_token=... (token issued only in this response). Optional webhook_url (HTTPS, public).",
         },
       },
       "/v1/jobs/{id}": {
-        get: { summary: "Job status/result (free)" },
+        get: {
+          summary: "Job status/result (poll_token required)",
+          description:
+            "Requires poll_token query param or x-job-poll-token header from POST /v1/jobs.",
+        },
       },
     },
     "x-swarm-jobs": {

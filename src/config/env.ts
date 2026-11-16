@@ -23,11 +23,16 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional(),
   DIRECT_URL: z.string().url().optional(),
   CRON_SECRET: z.string().optional(),
-  PAY_TO_ADDRESS: z
-    .string()
-    .regex(/^0x[a-fA-F0-9]{40}$/, "PAY_TO_ADDRESS must be a valid EVM address"),
+  PAY_TO_ADDRESS: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim() : value),
+    z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/, "PAY_TO_ADDRESS must be a valid EVM address"),
+  ),
   X402_NETWORK: networkSchema.default("base-sepolia"),
   FACILITATOR_URL: z.string().url().default("https://x402.org/facilitator"),
+  CDP_API_KEY_ID: z.string().optional(),
+  CDP_API_KEY_SECRET: z.string().optional(),
   PRICE_SEARCH: z.coerce.number().positive().default(0.001),
   PRICE_VEHICLE: z.coerce.number().positive().default(0.002),
   PRICE_EMISSIONS: z.coerce.number().positive().default(0.002),

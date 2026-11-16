@@ -31,6 +31,24 @@ export function resolveJobPriceUsd(
   return base;
 }
 
+const ALL_JOB_TYPES: JobType[] = [
+  "fleet_analysis",
+  "comparison_report",
+  "trend_insights",
+  "custom_export",
+  "starter_kit",
+];
+
+/** Highest tier job price (used for 402 quotes when the body is not yet valid). */
+export function maxJobPriceUsd(env: JobPricingEnv): number {
+  let max = 0;
+  for (const type of ALL_JOB_TYPES) {
+    max = Math.max(max, resolveJobPriceUsd(env, type, "standard"));
+    max = Math.max(max, resolveJobPriceUsd(env, type, "deep"));
+  }
+  return max;
+}
+
 export function jobPriceTable(env: JobPricingEnv): Record<string, string> {
   return {
     "POST /v1/jobs (fleet_analysis, standard)": `$${resolveJobPriceUsd(env, "fleet_analysis", "standard")}`,

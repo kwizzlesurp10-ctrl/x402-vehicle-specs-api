@@ -1,6 +1,7 @@
 import type { AppEnv } from "../config/env.js";
 import type { DbExecutor } from "../db/executor.js";
 import { logJobsEvent } from "../lib/job-logger.js";
+import { assertPublicHttpsWebhookUrl, fetchWebhookSafely } from "../lib/ssrf-guard.js";
 import { createLlmClient } from "./llm/client.js";
 import { runSwarmPipeline } from "./pipeline/run.js";
 import {
@@ -200,11 +201,19 @@ async function executeJob(
     });
 
     if (job.webhook_url) {
-      await fetch(job.webhook_url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: jobId, status, result }),
-      }).catch(() => undefined);
+      try {
+        await assertPublicHttpsWebhookUrl(job.webhook_url);
+        await fetchWebhookSafely(job.webhook_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId, status, result }),
+        });
+      } catch (error) {
+        logJobsEvent("job_webhook_failed", {
+          job_id: jobId,
+          error: error instanceof Error ? error.message : "webhook_failed",
+        });
+      }
     }
 
     const succeeded = status === "completed" || status === "partial";

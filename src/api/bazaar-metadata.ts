@@ -149,7 +149,9 @@ export const bazaarPostJob = declareDiscoveryExtension({
       type: "starter_kit",
       depth: "standard",
       payment_usd: 0.25,
-      poll_url: "/v1/jobs/550e8400-e29b-41d4-a716-446655440000",
+      poll_token: "<secret>",
+      poll_url:
+        "/v1/jobs/550e8400-e29b-41d4-a716-446655440000?poll_token=<secret>",
     },
   },
 });

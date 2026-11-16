@@ -71,31 +71,51 @@ export const jobSubmitSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("fleet_analysis"),
     depth: jobDepthSchema.default("standard"),
-    webhook_url: z.string().url().optional(),
+    webhook_url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), "webhook_must_use_https")
+      .optional(),
     input: fleetInputSchema,
   }),
   z.object({
     type: z.literal("comparison_report"),
     depth: jobDepthSchema.default("standard"),
-    webhook_url: z.string().url().optional(),
+    webhook_url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), "webhook_must_use_https")
+      .optional(),
     input: comparisonInputSchema,
   }),
   z.object({
     type: z.literal("trend_insights"),
     depth: jobDepthSchema.default("standard"),
-    webhook_url: z.string().url().optional(),
+    webhook_url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), "webhook_must_use_https")
+      .optional(),
     input: trendInputSchema,
   }),
   z.object({
     type: z.literal("custom_export"),
     depth: jobDepthSchema.default("standard"),
-    webhook_url: z.string().url().optional(),
+    webhook_url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), "webhook_must_use_https")
+      .optional(),
     input: customExportInputSchema,
   }),
   z.object({
     type: z.literal("starter_kit"),
     depth: jobDepthSchema.default("standard"),
-    webhook_url: z.string().url().optional(),
+    webhook_url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith("https://"), "webhook_must_use_https")
+      .optional(),
     input: starterKitInputSchema.optional().default({ language: "typescript" }),
   }),
 ]);
@@ -122,4 +142,5 @@ export type JobRecord = {
   updated_at: string;
   started_at: string | null;
   completed_at: string | null;
+  poll_token_hash: string | null;
 };

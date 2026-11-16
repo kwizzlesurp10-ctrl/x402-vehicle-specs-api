@@ -21,6 +21,7 @@ import { processJobById } from "../jobs/worker-once.js";
 import { ingestFromEpa } from "../ingest/run.js";
 import { buildHealthPayload, buildJobsHealthPayload } from "./health.js";
 import { logJobsEvent } from "../lib/job-logger.js";
+import { assertPublicHttpsWebhookUrl, SsrfBlockedError } from "../lib/ssrf-guard.js";
 import { runJobsCron } from "../jobs/cron-jobs.js";
 import { recordIngestCronRun } from "../jobs/queue-stats.js";
 
@@ -198,7 +199,17 @@ export function createApp(options: CreateAppOptions): Hono {
     const json = body ?? (await c.req.json());
     const parsed = jobSubmitSchema.safeParse(json);
     if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
+      return c.json({ error: "invalid_job_body" }, 400);
+    }
+
+    if (parsed.data.webhook_url) {
+      try {
+        await assertPublicHttpsWebhookUrl(parsed.data.webhook_url);
+      } catch (error) {
+        const message =
+          error instanceof SsrfBlockedError ? error.message : "invalid_webhook_url";
+        return c.json({ error: message }, 400);
+      }
     }
 
     const paymentUsd = resolveJobPriceUsd(
@@ -206,13 +217,14 @@ export function createApp(options: CreateAppOptions): Hono {
       parsed.data.type,
       parsed.data.depth,
     );
-    const record = await jobQueue.createJob({
+    const { record, pollToken } = await jobQueue.createJob({
       request: parsed.data,
       paymentUsd,
       maxAttempts: env.JOB_MAX_ATTEMPTS,
     });
     await kickJob(env, db, record.id);
 
+    const pollQuery = `poll_token=${encodeURIComponent(pollToken)}`;
     return c.json(
       {
         job_id: record.id,
@@ -220,7 +232,8 @@ export function createApp(options: CreateAppOptions): Hono {
         type: record.type,
         depth: record.depth,
         payment_usd: paymentUsd,
-        poll_url: `/v1/jobs/${record.id}`,
+        poll_token: pollToken,
+        poll_url: `/v1/jobs/${record.id}?${pollQuery}`,
         refund_policy:
           "If status=partial or failed with refund_eligible=true, contact the operator for manual USDC refund (on-chain hook TBD).",
       },
@@ -230,10 +243,15 @@ export function createApp(options: CreateAppOptions): Hono {
 
   if (enablePayments) {
     const payment = options.paymentLayer ?? createPaymentLayer(env);
-    app.use("/v1/vehicles/*", payment.middleware);
-    app.use("/v1/vehicles", payment.middleware);
-    app.use("/v1/compare", payment.middleware);
-    app.use("/v1/stats", payment.middleware);
+    for (const path of [
+      "/v1/vehicles/*",
+      "/v1/vehicles",
+      "/v1/compare",
+      "/v1/stats",
+    ]) {
+      app.use(path, payment.rateLimitMiddleware);
+      app.use(path, payment.settleMiddleware);
+    }
     app.post(
       "/v1/jobs",
       createJobsPaymentMiddleware(payment.resourceServer, env),
@@ -244,7 +262,18 @@ export function createApp(options: CreateAppOptions): Hono {
   }
 
   app.get("/v1/jobs/:id", async (c) => {
-    const job = await jobQueue.getById(c.req.param("id"));
+    const jobId = c.req.param("id");
+    const pollToken =
+      c.req.query("poll_token") ?? c.req.header("x-job-poll-token");
+    if (!pollToken) {
+      return c.json({ error: "poll_token_required" }, 401);
+    }
+    const authorized = await jobQueue.verifyPollToken(jobId, pollToken);
+    if (!authorized) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    const job = await jobQueue.getById(jobId);
     if (!job) return c.json({ error: "job not found" }, 404);
     return c.json({
       job_id: job.id,

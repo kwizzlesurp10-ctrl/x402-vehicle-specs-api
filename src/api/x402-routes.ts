@@ -1,5 +1,4 @@
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
-import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../config/env.js";
@@ -8,6 +7,14 @@ import {
   formatUsdPrice,
   type Caip2Network,
 } from "../config/env.js";
+import type { FacilitatorClient } from "@x402/core/server";
+import {
+  resolveFacilitatorClient,
+  resolveFacilitatorClientAsync,
+  resolveFacilitatorPublicUrl,
+} from "./facilitator.js";
+import { createPaymentRateLimitMiddleware } from "./payment-rate-limit.js";
+import { logJobsEvent } from "../lib/job-logger.js";
 import {
   bazaarCompare,
   bazaarStats,
@@ -17,19 +24,34 @@ import {
 } from "./bazaar-metadata.js";
 
 export type PaymentLayer = {
-  middleware: MiddlewareHandler;
+  rateLimitMiddleware: MiddlewareHandler;
+  settleMiddleware: MiddlewareHandler;
   network: Caip2Network;
   resourceServer: x402ResourceServer;
 };
 
-export function createPaymentLayer(env: AppEnv): PaymentLayer {
+export function createPaymentLayer(
+  env: AppEnv,
+  facilitatorClient?: FacilitatorClient,
+): PaymentLayer {
   const network = CAIP2_BY_NETWORK[env.X402_NETWORK];
-  const facilitatorClient = new HTTPFacilitatorClient({
-    url: env.FACILITATOR_URL,
-  });
-  const resourceServer = new x402ResourceServer(facilitatorClient)
+  const facilitator =
+    facilitatorClient ?? resolveFacilitatorClient(env);
+  const resourceServer = new x402ResourceServer(facilitator)
     .register("eip155:*", new ExactEvmScheme())
-    .register(network, new ExactEvmScheme());
+    .register(network, new ExactEvmScheme())
+    .onSettleFailure(async (context) => {
+      const transport = context.transportContext as
+        | { request?: { path?: string; method?: string } }
+        | undefined;
+      logJobsEvent("x402_settle_failure", {
+        facilitator: resolveFacilitatorPublicUrl(env),
+        path: transport?.request?.path ?? null,
+        method: transport?.request?.method ?? null,
+        phase: context.phase,
+        error: context.error.message,
+      });
+    });
 
   const acceptsBase = {
     scheme: "exact" as const,
@@ -37,7 +59,12 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
     payTo: env.PAY_TO_ADDRESS,
   };
 
-  const middleware = paymentMiddleware(
+  const paidRateLimit = createPaymentRateLimitMiddleware({
+    windowMs: 60_000,
+    maxRequests: 120,
+  });
+
+  const settleMiddleware = paymentMiddleware(
     {
       "GET /v1/vehicles/search": {
         accepts: {
@@ -101,11 +128,17 @@ export function createPaymentLayer(env: AppEnv): PaymentLayer {
     false,
   );
 
-  return { middleware, network, resourceServer };
+  return {
+    rateLimitMiddleware: paidRateLimit,
+    settleMiddleware,
+    network,
+    resourceServer,
+  };
 }
 
 export async function preparePaymentLayer(env: AppEnv): Promise<PaymentLayer> {
-  const layer = createPaymentLayer(env);
+  const facilitatorClient = await resolveFacilitatorClientAsync(env);
+  const layer = createPaymentLayer(env, facilitatorClient);
   await layer.resourceServer.initialize();
   return layer;
 }

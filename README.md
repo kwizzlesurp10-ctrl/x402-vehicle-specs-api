@@ -63,7 +63,7 @@ Paid routes declare **Bazaar** discovery metadata (`@x402/extensions/bazaar`) so
 | `custom_export` | $0.40 | 2× |
 | `starter_kit` | $0.25 | 2× |
 
-`POST /v1/jobs` is x402-paid (tier resolved from JSON `type` + `depth`). `GET /v1/jobs/:id` is **free** for polling. Optional `webhook_url` receives the completed payload.
+`POST /v1/jobs` is x402-paid (tier resolved from JSON `type` + `depth`) and uses **`paymentFlow: upfront`** so settlement completes before the job row is created. The JSON response includes a one-time `poll_token`; poll with `GET /v1/jobs/:id?poll_token=...` (or header `x-job-poll-token`). Optional `webhook_url` must be **HTTPS** to a public host (SSRF-protected).
 
 **Refund policy:** if the Verifier cannot reproduce numeric fields, the job finishes as `partial` with `refund_eligible=true` (manual USDC refund hook; on-chain automation TBD). `failed` / `timed_out` jobs may also set `refund_eligible`.
 
@@ -111,8 +111,8 @@ curl -i -X POST http://127.0.0.1:8787/v1/jobs \
   -H 'Content-Type: application/json' \
   -d '{"type":"starter_kit","depth":"standard","input":{"language":"typescript"}}'
 
-# 2) Poll (free)
-curl http://127.0.0.1:8787/v1/jobs/<job_id>
+# 2) Poll (use poll_token from the 202 body)
+curl "http://127.0.0.1:8787/v1/jobs/<job_id>?poll_token=<poll_token>"
 ```
 
 Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
@@ -131,6 +131,20 @@ Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
 3. Set Vercel environment variables from `.env.example` (including `CRON_SECRET`, `PAY_TO_ADDRESS`, `LLM_API_KEY`).
 4. Run migrations + initial ingest locally or via [`.github/workflows/ingest-weekly.yml`](.github/workflows/ingest-weekly.yml) (`workflow_dispatch` + weekly schedule using `DIRECT_URL` secret).
 5. Protect cron routes: `Authorization: Bearer <CRON_SECRET>`.
+
+### Base mainnet (Keith — Vercel env names only)
+
+Keep running on Sepolia until you are ready, then set (values not listed here):
+
+| Variable | Purpose |
+| --- | --- |
+| `X402_NETWORK` | Switch to `base` (`eip155:8453`) |
+| `PAY_TO_ADDRESS` | Mainnet USDC receive address (trim-safe) |
+| `CDP_API_KEY_ID` | CDP facilitator auth |
+| `CDP_API_KEY_SECRET` | CDP facilitator auth |
+| `DIRECT_URL` | Run migration `004_job_poll_token.sql` after deploy |
+
+Defaults remain `base-sepolia`, x402.org facilitator, and existing `PRICE_*` values. USDC on Base mainnet is `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (EIP-712 **USD Coin**, version **2**); dollar-quoted routes resolve asset metadata via the facilitator.
 
 Production URLs are under `/api` (e.g. `/api/health`, `/api/v1/vehicles/search`). Root discovery paths (`/health`, `/openapi.json`, `/.well-known/x402.json`, `/llms.txt`, `/`) rewrite to `/api` equivalents for agent discovery.
 
@@ -160,8 +174,10 @@ curl -i "http://127.0.0.1:8787/v1/vehicles/25262"
 | `PUBLIC_BASE_URL` | Optional override for OpenAPI `servers` URL and `llms.txt` (default: request host + `API_BASE_PATH`, else production URL) |
 | `API_BASE_URL` | MCP only: remote API base (e.g. `https://x402-vehicle-specs-api.vercel.app/api`) |
 | `PAY_TO_ADDRESS` | **Required.** EVM address receiving USDC |
-| `X402_NETWORK` | `base-sepolia` (default) or `base` |
-| `FACILITATOR_URL` | x402 facilitator (default `https://x402.org/facilitator`) |
+| `X402_NETWORK` | `base-sepolia` (default, `eip155:84532`) or `base` (`eip155:8453`) |
+| `FACILITATOR_URL` | x402 facilitator when CDP keys are **unset** (default `https://x402.org/facilitator`) |
+| `CDP_API_KEY_ID` | Optional. With `CDP_API_KEY_SECRET`, use [CDP x402 facilitator](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers) |
+| `CDP_API_KEY_SECRET` | Optional CDP API key secret (pair with `CDP_API_KEY_ID`) |
 | `LLM_PROVIDER` | `xai` (default), `openai`, or `mock` |
 | `LLM_BASE_URL` | Default `https://api.x.ai/v1` |
 | `LLM_MODEL` | Default `grok-3-mini` |

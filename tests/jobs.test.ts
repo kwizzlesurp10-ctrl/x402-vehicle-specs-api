@@ -74,10 +74,12 @@ describe("swarm jobs", () => {
     });
 
     expect(create.status).toBe(202);
-    const body = (await create.json()) as { job_id: string };
+    const body = (await create.json()) as { job_id: string; poll_token: string };
     await processJobById({ db, env }, body.job_id);
 
-    const poll = await app.request(`http://127.0.0.1/v1/jobs/${body.job_id}`);
+    const poll = await app.request(
+      `http://127.0.0.1/v1/jobs/${body.job_id}?poll_token=${encodeURIComponent(body.poll_token)}`,
+    );
     expect(poll.status).toBe(200);
     const job = (await poll.json()) as {
       status: string;
@@ -104,10 +106,15 @@ describe("swarm jobs", () => {
         },
       }),
     });
-    const { job_id } = (await create.json()) as { job_id: string };
+    const { job_id, poll_token } = (await create.json()) as {
+      job_id: string;
+      poll_token: string;
+    };
     await processJobById({ db, env, forceVerifierFail: true }, job_id);
     const job = (await (
-      await app.request(`http://127.0.0.1/v1/jobs/${job_id}`)
+      await app.request(
+        `http://127.0.0.1/v1/jobs/${job_id}?poll_token=${encodeURIComponent(poll_token)}`,
+      )
     ).json()) as {
       status: string;
       refund_eligible: boolean;
@@ -130,10 +137,15 @@ describe("swarm jobs", () => {
         input: { language: "curl" },
       }),
     });
-    const { job_id } = (await create.json()) as { job_id: string };
+    const { job_id, poll_token } = (await create.json()) as {
+      job_id: string;
+      poll_token: string;
+    };
     await processJobById({ db, env: lowTokenEnv }, job_id);
     const job = (await (
-      await app.request(`http://127.0.0.1/v1/jobs/${job_id}`)
+      await app.request(
+        `http://127.0.0.1/v1/jobs/${job_id}?poll_token=${encodeURIComponent(poll_token)}`,
+      )
     ).json()) as { status: string; refund_eligible: boolean };
     expect(job.status).toBe("failed");
     expect(job.refund_eligible).toBe(true);
@@ -158,10 +170,15 @@ describe("swarm jobs", () => {
         input: { language: "typescript" },
       }),
     });
-    const { job_id } = (await create.json()) as { job_id: string };
+    const { job_id, poll_token } = (await create.json()) as {
+      job_id: string;
+      poll_token: string;
+    };
     await processJobById({ db, env: timeoutEnv }, job_id);
     const job = (await (
-      await app.request(`http://127.0.0.1/v1/jobs/${job_id}`)
+      await app.request(
+        `http://127.0.0.1/v1/jobs/${job_id}?poll_token=${encodeURIComponent(poll_token)}`,
+      )
     ).json()) as { status: string; refund_eligible: boolean };
     expect(job.status).toBe("timed_out");
     expect(job.refund_eligible).toBe(true);
