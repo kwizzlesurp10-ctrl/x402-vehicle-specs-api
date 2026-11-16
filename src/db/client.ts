@@ -47,10 +47,18 @@ const migrationsDir = path.join(
   "../../migrations",
 );
 
-function listMigrationFiles(excludePrefix?: string): string[] {
+/** Applied manually in Supabase (uses CREATE INDEX CONCURRENTLY). */
+export const MANUAL_ONLY_MIGRATIONS = new Set(["005_query_indexes.sql"]);
+
+function listMigrationFiles(
+  excludePrefix?: string,
+  options?: { includeManual?: boolean },
+): string[] {
+  const includeManual = options?.includeManual ?? false;
   return readdirSync(migrationsDir)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .filter((name) => !excludePrefix || !name.startsWith(excludePrefix))
+    .filter((name) => includeManual || !MANUAL_ONLY_MIGRATIONS.has(name))
     .sort((a, b) => a.localeCompare(b));
 }
 

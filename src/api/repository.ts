@@ -1,5 +1,9 @@
 import type { DbExecutor } from "../db/executor.js";
 import type { VehicleRow } from "../db/client.js";
+import {
+  normalizedModelSearchTerm,
+  searchModelContainsSql,
+} from "../db/vehicle-search-sql.js";
 
 export class VehicleRepository {
   constructor(private readonly db: DbExecutor) {}
@@ -29,8 +33,9 @@ export class VehicleRepository {
       args.push(params.make.trim().toLowerCase());
     }
     if (params.model !== undefined) {
-      clauses.push(`search_model LIKE $${n++}`);
-      args.push(`%${params.model.trim().toLowerCase()}%`);
+      const modelParam = `$${n++}`;
+      clauses.push(searchModelContainsSql(modelParam));
+      args.push(normalizedModelSearchTerm(params.model));
     }
 
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";

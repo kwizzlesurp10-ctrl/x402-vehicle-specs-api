@@ -81,7 +81,7 @@ cp .env.example .env
 # Set PAY_TO_ADDRESS to your Base / Base-Sepolia USDC receive address
 
 npm ci
-npm run migrate       # apply migrations/001_init.sql via DIRECT_URL
+npm run migrate       # apply migrations/001–003 (and 004 when present) via DIRECT_URL
 npm run ingest        # downloads EPA zips (~50k vehicles) into Postgres
 npm run dev           # http://0.0.0.0:8787 (no /api prefix locally)
 npm test              # PGlite in-memory Postgres
@@ -131,6 +131,27 @@ Job input/output JSON schemas: [`prompts/schemas/jobs/`](prompts/schemas/jobs/).
 3. Set Vercel environment variables from `.env.example` (including `CRON_SECRET`, `PAY_TO_ADDRESS`, `LLM_API_KEY`).
 4. Run migrations + initial ingest locally or via [`.github/workflows/ingest-weekly.yml`](.github/workflows/ingest-weekly.yml) (`workflow_dispatch` + weekly schedule using `DIRECT_URL` secret).
 5. Protect cron routes: `Authorization: Bearer <CRON_SECRET>`.
+
+### Migrations
+
+| File | Applied by | Purpose |
+| --- | --- | --- |
+| `001_init.sql` | `npm run migrate` | Core tables + baseline indexes |
+| `002_enable_rls.sql` | `npm run migrate` | RLS on API tables (shared Supabase projects) |
+| `003_job_queue_observability.sql` | `npm run migrate` | Job retry columns + cron metadata |
+| `004_job_poll_token.sql` | `npm run migrate` (when merged) | Poll token hash + partial index |
+| `005_query_indexes.sql` | **Manual** (Supabase SQL Editor) | Vehicle lookup/search indexes + `pg_trgm` |
+
+`005_query_indexes.sql` uses `CREATE INDEX CONCURRENTLY` and **must be run outside a transaction** (Supabase SQL Editor → paste the file → Run). It is excluded from `npm run migrate` so local/CI migrate stays transactional. The API works without 005; queries fall back to existing indexes until you apply it.
+
+**005 indexes (each maps to live SQL):**
+
+- `idx_vehicles_search_model_trgm` — `GET /v1/vehicles/search` (and job fleet model match) `search_model LIKE '%' || $term || '%'` with `pg_trgm`
+- `idx_vehicles_year_make` — `GET /v1/makes?year=` `DISTINCT make … ORDER BY make`
+- `idx_vehicles_year_search_make_model` — `GET /v1/models?year=&make=` `DISTINCT model … ORDER BY model`
+- `idx_vehicles_year_v_class` — `GET /v1/stats?year=&class=` filters and cylinder `GROUP BY`
+
+Rollback: uncomment and run the `DOWN` block at the bottom of `005_query_indexes.sql` in the SQL editor (also outside a transaction).
 
 Production URLs are under `/api` (e.g. `/api/health`, `/api/v1/vehicles/search`). Root discovery paths (`/health`, `/openapi.json`, `/.well-known/x402.json`, `/llms.txt`, `/`) rewrite to `/api` equivalents for agent discovery.
 
