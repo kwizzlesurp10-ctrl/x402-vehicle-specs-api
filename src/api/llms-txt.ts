@@ -2,6 +2,7 @@ import type { AppEnv } from "../config/env.js";
 import { CAIP2_BY_NETWORK, formatUsdPrice } from "../config/env.js";
 import { jobPriceTable } from "../jobs/pricing.js";
 import { resolvePublicBaseUrl } from "../lib/public-base-url.js";
+import { resolveFacilitatorPublicUrl } from "./facilitator.js";
 
 export function buildLlmsTxt(
   env: AppEnv,
@@ -26,7 +27,7 @@ export function buildLlmsTxt(
     "",
     "## x402 payment",
     `- Network (CAIP-2): ${network}`,
-    `- Facilitator: ${env.FACILITATOR_URL}`,
+    `- Facilitator: ${resolveFacilitatorPublicUrl(env)}`,
     `- Asset: USDC (exact scheme)`,
     `- Unsigned paid request → HTTP 402 with PAYMENT-REQUIRED header (v2)`,
     `- Retry with PAYMENT-SIGNATURE (or x-payment) after signing USDC transfer`,
@@ -44,7 +45,7 @@ export function buildLlmsTxt(
     "## Free routes",
     "- GET /v1/makes?year=",
     "- GET /v1/models?year=&make=",
-    "- GET /v1/jobs/:id (poll swarm jobs)",
+    "- GET /v1/jobs/:id?poll_token=... (poll swarm jobs; token from POST /v1/jobs)",
     "",
     "## Example (expect 402 without wallet)",
     "```bash",
@@ -83,7 +84,7 @@ export function buildLandingJson(
     },
     x402: {
       network: CAIP2_BY_NETWORK[env.X402_NETWORK],
-      facilitator: env.FACILITATOR_URL,
+      facilitator: resolveFacilitatorPublicUrl(env),
       currency: "USDC",
     },
     docs: "See GET /llms.txt and GET /openapi.json for machine-readable pricing and schemas.",

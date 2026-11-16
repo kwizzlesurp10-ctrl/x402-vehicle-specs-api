@@ -153,17 +153,21 @@ describe("job queue reliability", () => {
     const app = createApp({ db, env, enablePayments: false });
     const health = await app.request("http://127.0.0.1/health");
     expect(health.status).toBe(200);
-    const body = (await health.json()) as {
-      jobs_queue: { queued_count: number; by_status: Record<string, number> };
-      cron: { jobs_last_ok: boolean; jobs_last_summary: { processed: number } };
-    };
-    expect(body.jobs_queue).toBeDefined();
-    expect(typeof body.jobs_queue.queued_count).toBe("number");
-    expect(body.cron.jobs_last_ok).toBe(true);
-    expect(body.cron.jobs_last_summary.processed).toBe(2);
+    const body = (await health.json()) as { jobs_health: string };
+    expect(body.jobs_health).toBe("/health/jobs");
+    expect(body).not.toHaveProperty("jobs_queue");
 
     const jobsHealth = await app.request("http://127.0.0.1/health/jobs");
     expect(jobsHealth.status).toBe(200);
+    const jobsBody = (await jobsHealth.json()) as {
+      jobs_queue: { queued_count: number; by_status: Record<string, number> };
+      jobs_cron_last_ok: boolean;
+      jobs_cron_last_summary: { processed: number };
+    };
+    expect(jobsBody.jobs_queue).toBeDefined();
+    expect(typeof jobsBody.jobs_queue.queued_count).toBe("number");
+    expect(jobsBody.jobs_cron_last_ok).toBe(true);
+    expect(jobsBody.jobs_cron_last_summary.processed).toBe(2);
 
     const stats = await getJobsQueueStats(db, env.JOB_RUN_LEASE_MS);
     expect(stats.by_status).toBeDefined();

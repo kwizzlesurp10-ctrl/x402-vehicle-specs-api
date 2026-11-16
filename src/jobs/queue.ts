@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { getMigration003Capabilities } from "../db/migration-003-capabilities.js";
 import type { DbExecutor } from "../db/executor.js";
+import {
+  generatePollToken,
+  hashPollToken,
+  pollTokensMatch,
+} from "../lib/poll-token.js";
 import type { JobDepth, JobRecord, JobSubmitRequest, JobType } from "./types.js";
 
 type JobRowDb = {
@@ -23,6 +28,7 @@ type JobRowDb = {
   updated_at: string;
   started_at: string | null;
   completed_at: string | null;
+  poll_token_hash: string | null;
 };
 
 export type ReclaimStuckResult = {
@@ -61,6 +67,7 @@ function mapJob(row: JobRowDb): JobRecord {
     updated_at: row.updated_at,
     started_at: row.started_at,
     completed_at: row.completed_at,
+    poll_token_hash: row.poll_token_hash ?? null,
   };
 }
 
@@ -76,8 +83,10 @@ export class JobQueue {
     request: JobSubmitRequest;
     paymentUsd: number;
     maxAttempts: number;
-  }): Promise<JobRecord> {
+  }): Promise<{ record: JobRecord; pollToken: string }> {
     const id = randomUUID();
+    const pollToken = generatePollToken();
+    const pollTokenHash = hashPollToken(pollToken);
     const inputPayload = {
       type: params.request.type,
       depth: params.request.depth,
@@ -91,8 +100,8 @@ export class JobQueue {
     const row = reliability
       ? await this.db.queryOne<JobRowDb>(
           `INSERT INTO jobs (
-              id, type, depth, status, input_json, payment_usd, webhook_url, max_attempts
-            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6, $7)
+              id, type, depth, status, input_json, payment_usd, webhook_url, max_attempts, poll_token_hash
+            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6, $7, $8)
             RETURNING *`,
           [
             id,
@@ -102,12 +111,13 @@ export class JobQueue {
             params.paymentUsd,
             params.request.webhook_url ?? null,
             params.maxAttempts,
+            pollTokenHash,
           ],
         )
       : await this.db.queryOne<JobRowDb>(
           `INSERT INTO jobs (
-              id, type, depth, status, input_json, payment_usd, webhook_url
-            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6)
+              id, type, depth, status, input_json, payment_usd, webhook_url, poll_token_hash
+            ) VALUES ($1, $2, $3, 'queued', $4::jsonb, $5, $6, $7)
             RETURNING *`,
           [
             id,
@@ -116,11 +126,24 @@ export class JobQueue {
             JSON.stringify(inputPayload),
             params.paymentUsd,
             params.request.webhook_url ?? null,
+            pollTokenHash,
           ],
         );
 
     if (!row) throw new Error("failed to create job");
-    return mapJob({ ...row, max_attempts: row.max_attempts ?? params.maxAttempts });
+    return {
+      record: mapJob({ ...row, max_attempts: row.max_attempts ?? params.maxAttempts }),
+      pollToken,
+    };
+  }
+
+  async verifyPollToken(jobId: string, pollToken: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ poll_token_hash: string | null }>(
+      `SELECT poll_token_hash FROM jobs WHERE id = $1`,
+      [jobId],
+    );
+    if (!row?.poll_token_hash) return false;
+    return pollTokensMatch(row.poll_token_hash, pollToken);
   }
 
   async getById(id: string): Promise<JobRecord | null> {

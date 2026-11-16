@@ -57,10 +57,8 @@ describe("migration 003 resilience", () => {
     expect(payload.status).toBe("ok");
     expect(payload.vehicles_indexed).toBeGreaterThan(0);
     expect(payload.migrations_pending).toEqual(["003_job_queue_observability"]);
-    expect(payload.cron).toMatchObject({
-      jobs_last_run_at: null,
-      ingest_last_run_at: null,
-    });
+    expect(payload.jobs_health).toBe("/health/jobs");
+    expect(payload).not.toHaveProperty("cron");
   });
 
   it("serves /health with HTTP 200 before migration 003", async () => {
